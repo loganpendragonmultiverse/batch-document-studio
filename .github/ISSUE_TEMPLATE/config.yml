@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Usage questions
+    url: https://github.com/loganpendragonmultiverse/batch-document-studio/discussions
+    about: Ask for help without sharing private documents or recipient data.
+  - name: Private vulnerability report
+    url: https://github.com/loganpendragonmultiverse/batch-document-studio/security/advisories/new
+    about: Report security issues privately.
