@@ -22,7 +22,7 @@ jobs:
       - run: npm run package
       - name: Verify tag matches package version
         run: node -e "if (process.env.GITHUB_REF_NAME !== 'v' + require('./package.json').version) process.exit(1)"
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           generate_release_notes: false
           files: |
