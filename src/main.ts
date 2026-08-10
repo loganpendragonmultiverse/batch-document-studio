@@ -1,10 +1,18 @@
 import "./styles.css";
 
-import { clamp, validateFields } from "./core";
+import { clamp, createRecipe, preflightBatch, validateFields, validateRecipe } from "./core";
 import { downloadBlob, generateArchive } from "./render";
 import { readSpreadsheet } from "./spreadsheet";
 import { readTemplate } from "./template";
-import type { Dataset, OutputFormat, TemplateDocument, TextAlignment, TextField } from "./types";
+import type {
+  Dataset,
+  FontAsset,
+  OutputFormat,
+  TemplateDocument,
+  TextAlignment,
+  TextField,
+  TextFit,
+} from "./types";
 
 const app = document.querySelector<HTMLDivElement>("#app");
 if (!app) throw new Error("Application root not found.");
@@ -51,6 +59,14 @@ app.innerHTML = `
         </div>
       </section>
 
+      <section class="setup-card" id="recipe-card">
+        <div class="step-number">04</div>
+        <div><h2>Project recipe</h2><p>Portable layout and export settings—never recipient rows</p>
+          <button class="text-button" id="export-recipe" type="button">Export recipe</button>
+          <label class="text-button recipe-import">Import recipe<input id="recipe-input" type="file" accept="application/json,.json" /></label>
+        </div>
+      </section>
+
       <button class="clear-button" id="clear-session" type="button">Clear local session</button>
     </aside>
 
@@ -63,6 +79,7 @@ app.innerHTML = `
         <label class="record-picker">Preview row
           <select id="record-select" disabled><option>—</option></select>
         </label>
+        <label class="record-picker">Template page<select id="page-select" disabled><option>1</option></select></label>
       </div>
       <div class="stage-shell" id="stage-shell">
         <div class="empty-stage" id="empty-stage">
@@ -88,6 +105,10 @@ app.innerHTML = `
         </div>
         <label>Alignment<select id="field-align"><option value="left">Left</option><option value="center">Center</option><option value="right">Right</option></select></label>
         <label>Field width<input id="field-width" type="range" min="10" max="100" step="1" /></label>
+        <label>Field height<input id="field-height" type="range" min="5" max="100" step="1" /></label>
+        <label>Text handling<select id="field-fit"><option value="clip">Clip and warn</option><option value="shrink">Shrink to fit</option><option value="wrap">Wrap lines</option></select></label>
+        <div class="input-pair"><label>Minimum size<input id="field-min-size" type="number" min="4" max="240" /></label><label>Line height<input id="field-line-height" type="number" min="0.8" max="3" step="0.1" /></label></div>
+        <label>Font<select id="field-font"><option value="helvetica">Built-in Helvetica</option><option value="custom">Selected local font</option></select></label>
         <button class="danger-button" id="remove-field" type="button">Remove field</button>
       </form>
 
@@ -95,11 +116,14 @@ app.innerHTML = `
         <div class="eyebrow">Export batch</div>
         <label>Filename pattern<input id="filename-pattern" value="{first_name}-{last_name}" /></label>
         <p class="hint" id="pattern-hint">Use spreadsheet headers inside braces.</p>
+        <label>Optional local font<input id="font-input" type="file" accept=".ttf,.otf,font/ttf,font/otf" /></label>
+        <p class="hint" id="font-hint">Font files remain in this page session. Confirm you have embedding rights.</p>
         <fieldset>
           <legend>Output</legend>
           <label class="radio-card"><input type="radio" name="format" value="pdf" checked /><span><strong>PDF</strong><small>One document per row</small></span></label>
           <label class="radio-card"><input type="radio" name="format" value="png" /><span><strong>PNG</strong><small>One image per row</small></span></label>
         </fieldset>
+        <button class="preflight-button" id="preflight" type="button" disabled>Run preflight</button>
         <button class="export-button" id="generate" type="button" disabled>Build ZIP</button>
         <div class="progress" id="progress" role="status" aria-live="polite">Load a template and spreadsheet to begin.</div>
       </div>
@@ -112,6 +136,8 @@ let dataset: Dataset | null = null;
 let fields: TextField[] = [];
 let selectedFieldId: string | null = null;
 let previewIndex = 0;
+let pageIndex = 0;
+let customFont: FontAsset | undefined;
 
 const element = <T extends HTMLElement>(selector: string): T => {
   const found = document.querySelector<T>(selector);
@@ -122,8 +148,10 @@ const element = <T extends HTMLElement>(selector: string): T => {
 const templateInput = element<HTMLInputElement>("#template-input");
 const dataInput = element<HTMLInputElement>("#data-input");
 const recordSelect = element<HTMLSelectElement>("#record-select");
+const pageSelect = element<HTMLSelectElement>("#page-select");
 const addFieldButton = element<HTMLButtonElement>("#add-field");
 const generateButton = element<HTMLButtonElement>("#generate");
+const preflightButton = element<HTMLButtonElement>("#preflight");
 const sourceCanvas = element<HTMLCanvasElement>("#template-canvas");
 const fieldLayer = element<HTMLDivElement>("#field-layer");
 const canvasWrap = element<HTMLDivElement>("#canvas-wrap");
@@ -144,6 +172,7 @@ function updateReadiness(): void {
   element<HTMLElement>("#fields-card").dataset.ready = String(fields.length > 0);
   addFieldButton.disabled = !(template && dataset);
   generateButton.disabled = !(template && dataset && fields.length > 0);
+  preflightButton.disabled = generateButton.disabled;
   element<HTMLElement>("#fields-summary").textContent = fields.length
     ? `${fields.length} field${fields.length === 1 ? "" : "s"} on the proof`
     : "Add data after loading both files";
@@ -155,10 +184,11 @@ function updateReadiness(): void {
 
 function renderTemplate(): void {
   if (!template) return;
-  sourceCanvas.width = template.preview.width;
-  sourceCanvas.height = template.preview.height;
-  sourceCanvas.getContext("2d")?.drawImage(template.preview, 0, 0);
-  sourceCanvas.style.aspectRatio = `${template.preview.width}/${template.preview.height}`;
+  const preview = template.previews[pageIndex] ?? template.preview;
+  sourceCanvas.width = preview.width;
+  sourceCanvas.height = preview.height;
+  sourceCanvas.getContext("2d")?.drawImage(preview, 0, 0);
+  sourceCanvas.style.aspectRatio = `${preview.width}/${preview.height}`;
   fieldLayer.style.aspectRatio = sourceCanvas.style.aspectRatio;
   canvasWrap.hidden = false;
   element<HTMLElement>("#empty-stage").hidden = true;
@@ -190,7 +220,7 @@ function fieldText(field: TextField): string {
 
 function renderFields(): void {
   fieldLayer.replaceChildren();
-  for (const field of fields) {
+  for (const field of fields.filter((candidate) => candidate.pageIndex === pageIndex)) {
     const node = document.createElement("button");
     node.type = "button";
     node.className = "mapped-field";
@@ -200,9 +230,11 @@ function renderFields(): void {
     node.style.left = `${field.x * 100}%`;
     node.style.top = `${field.y * 100}%`;
     node.style.width = `${field.width * 100}%`;
+    node.style.height = `${field.height * 100}%`;
     node.style.fontSize = `${Math.max(10, field.fontSize * 0.7)}px`;
     node.style.color = field.color;
     node.style.textAlign = field.alignment;
+    node.style.whiteSpace = field.fit === "wrap" ? "normal" : "nowrap";
     node.addEventListener("click", () => selectField(field.id));
     node.addEventListener("pointerdown", (event) => beginDrag(event, field.id));
     fieldLayer.append(node);
@@ -263,6 +295,11 @@ function updateInspector(): void {
   element<HTMLInputElement>("#field-color").value = field.color;
   element<HTMLSelectElement>("#field-align").value = field.alignment;
   element<HTMLInputElement>("#field-width").value = String(Math.round(field.width * 100));
+  element<HTMLInputElement>("#field-height").value = String(Math.round(field.height * 100));
+  element<HTMLSelectElement>("#field-fit").value = field.fit;
+  element<HTMLInputElement>("#field-min-size").value = String(field.minFontSize);
+  element<HTMLInputElement>("#field-line-height").value = String(field.lineHeight);
+  element<HTMLSelectElement>("#field-font").value = field.fontFamily;
 }
 
 function addField(): void {
@@ -274,9 +311,15 @@ function addField(): void {
     x: 0.2,
     y: 0.35 + fields.length * 0.08,
     width: 0.6,
+    height: 0.15,
     fontSize: 32,
     color: "#17201a",
     alignment: "center",
+    pageIndex,
+    fit: "shrink",
+    minFontSize: 12,
+    lineHeight: 1.2,
+    fontFamily: "helvetica",
   };
   fields.push(field);
   selectedFieldId = field.id;
@@ -287,8 +330,18 @@ async function handleTemplate(file: File): Promise<void> {
   try {
     setProgress("Reading template…");
     template = await readTemplate(file);
+    pageIndex = 0;
+    pageSelect.replaceChildren(
+      ...template.previews.map((_preview, index) => {
+        const option = document.createElement("option");
+        option.value = String(index);
+        option.textContent = `Page ${index + 1}`;
+        return option;
+      }),
+    );
+    pageSelect.disabled = template.previews.length <= 1;
     element<HTMLElement>("#template-summary").textContent =
-      `${template.name} · ${template.width} × ${template.height}`;
+      `${template.name} · ${template.pageSizes.length} page${template.pageSizes.length === 1 ? "" : "s"}`;
     renderTemplate();
     renderFields();
     setProgress("Template ready. Add spreadsheet data and mapped fields.");
@@ -356,6 +409,13 @@ recordSelect.addEventListener("change", () => {
   renderFields();
 });
 
+pageSelect.addEventListener("change", () => {
+  pageIndex = Number.parseInt(pageSelect.value, 10) || 0;
+  selectedFieldId = fields.find((field) => field.pageIndex === pageIndex)?.id ?? null;
+  renderTemplate();
+  renderFields();
+});
+
 addFieldButton.addEventListener("click", addField);
 
 element<HTMLSelectElement>("#field-column").addEventListener("change", (event) => {
@@ -388,6 +448,136 @@ element<HTMLInputElement>("#field-width").addEventListener("input", (event) => {
   renderFields();
 });
 
+element<HTMLInputElement>("#field-height").addEventListener("input", (event) => {
+  const field = selectedField();
+  if (field) field.height = Number((event.target as HTMLInputElement).value) / 100;
+  renderFields();
+});
+
+element<HTMLSelectElement>("#field-fit").addEventListener("change", (event) => {
+  const field = selectedField();
+  if (field) field.fit = (event.target as HTMLSelectElement).value as TextFit;
+  renderFields();
+});
+
+element<HTMLInputElement>("#field-min-size").addEventListener("input", (event) => {
+  const field = selectedField();
+  if (field) field.minFontSize = Number((event.target as HTMLInputElement).value);
+});
+
+element<HTMLInputElement>("#field-line-height").addEventListener("input", (event) => {
+  const field = selectedField();
+  if (field) field.lineHeight = Number((event.target as HTMLInputElement).value);
+  renderFields();
+});
+
+element<HTMLSelectElement>("#field-font").addEventListener("change", (event) => {
+  const field = selectedField();
+  if (field)
+    field.fontFamily = (event.target as HTMLSelectElement).value as TextField["fontFamily"];
+  renderFields();
+});
+
+element<HTMLInputElement>("#font-input").addEventListener("change", (event) => {
+  const file = (event.target as HTMLInputElement).files?.[0];
+  if (!file) return;
+  if (file.size > 10 * 1024 * 1024)
+    return setProgress("The font exceeds the 10 MB safety limit.", true);
+  void file
+    .arrayBuffer()
+    .then(async (buffer) => {
+      const family = `BDSCustom${Date.now()}`;
+      const bytes = new Uint8Array(buffer);
+      const face = new FontFace(family, bytes.slice().buffer);
+      await face.load();
+      document.fonts.add(face);
+      customFont = { bytes, name: file.name, family };
+      element<HTMLElement>("#font-hint").textContent =
+        `${file.name} ready for fields set to Selected local font.`;
+      setProgress("Local font loaded. Confirm its license permits embedding.");
+    })
+    .catch((error: unknown) =>
+      setProgress(error instanceof Error ? error.message : "The font could not be loaded.", true),
+    );
+});
+
+function outputFormat(): OutputFormat {
+  return element<HTMLInputElement>('input[name="format"]:checked').value as OutputFormat;
+}
+
+function currentPreflight() {
+  if (!template || !dataset) throw new Error("Load a template and spreadsheet first.");
+  return preflightBatch({
+    dataset,
+    fields,
+    template,
+    format: outputFormat(),
+    hasCustomFont: Boolean(customFont),
+  });
+}
+
+preflightButton.addEventListener("click", () => {
+  try {
+    const report = currentPreflight();
+    const errors = report.findings.filter((finding) => finding.severity === "error").length;
+    const warnings = report.findings.length - errors;
+    setProgress(
+      `Preflight complete: ${errors} errors and ${warnings} warnings across ${report.recordCount} records. The ZIP will include the detailed report and proof sheet.`,
+      errors > 0,
+    );
+  } catch (error) {
+    setProgress(error instanceof Error ? error.message : "Preflight failed.", true);
+  }
+});
+
+element<HTMLButtonElement>("#export-recipe").addEventListener("click", () => {
+  if (!template) return setProgress("Load the matching template before exporting a recipe.", true);
+  const recipe = createRecipe({
+    template,
+    fields,
+    outputFormat: outputFormat(),
+    filenamePattern: element<HTMLInputElement>("#filename-pattern").value,
+    customFontName: customFont?.name ?? null,
+  });
+  downloadBlob(
+    new Blob([JSON.stringify(recipe, null, 2) + "\n"], { type: "application/json" }),
+    "batch-document-studio-recipe.json",
+  );
+});
+
+element<HTMLInputElement>("#recipe-input").addEventListener("change", (event) => {
+  const file = (event.target as HTMLInputElement).files?.[0];
+  if (!file) return;
+  void file
+    .text()
+    .then((text) => {
+      if (!template) throw new Error("Load the template before importing its recipe.");
+      const recipe = validateRecipe(JSON.parse(text));
+      if (
+        recipe.template.mimeType !== template.mimeType ||
+        recipe.template.pageCount !== template.pageSizes.length
+      )
+        throw new Error("The recipe does not match this template type and page count.");
+      fields = structuredClone(recipe.fields);
+      selectedFieldId =
+        fields.find((field) => field.pageIndex === pageIndex)?.id ?? fields[0]?.id ?? null;
+      element<HTMLInputElement>("#filename-pattern").value = recipe.filenamePattern;
+      const formatInput = document.querySelector<HTMLInputElement>(
+        `input[name="format"][value="${recipe.outputFormat}"]`,
+      );
+      if (formatInput) formatInput.checked = true;
+      renderFields();
+      setProgress(
+        recipe.customFontName
+          ? `Recipe loaded. Reattach ${recipe.customFontName} before generation.`
+          : "Recipe loaded. Recipient data was not included.",
+      );
+    })
+    .catch((error: unknown) =>
+      setProgress(error instanceof Error ? error.message : "Recipe import failed.", true),
+    );
+});
+
 element<HTMLButtonElement>("#remove-field").addEventListener("click", () => {
   fields = fields.filter((field) => field.id !== selectedFieldId);
   selectedFieldId = fields[0]?.id ?? null;
@@ -401,7 +591,16 @@ generateButton.addEventListener("click", () => {
     setProgress(errors[0] ?? "Review the mapped fields.", true);
     return;
   }
-  const format = element<HTMLInputElement>('input[name="format"]:checked').value as OutputFormat;
+  const format = outputFormat();
+  const preflight = currentPreflight();
+  const preflightErrors = preflight.findings.filter((finding) => finding.severity === "error");
+  if (preflightErrors.length) {
+    setProgress(
+      `Resolve ${preflightErrors.length} preflight error${preflightErrors.length === 1 ? "" : "s"} before generation.`,
+      true,
+    );
+    return;
+  }
   const filenamePattern =
     element<HTMLInputElement>("#filename-pattern").value.trim() ||
     "document-{first_name}-{last_name}";
@@ -414,6 +613,7 @@ generateButton.addEventListener("click", () => {
     fields,
     format,
     filenamePattern,
+    customFont,
     onProgress: (completed, total) => setProgress(`Rendered ${completed} of ${total} documents…`),
   })
     .then((archive) => {
@@ -432,8 +632,14 @@ element<HTMLButtonElement>("#clear-session").addEventListener("click", () => {
   fields = [];
   selectedFieldId = null;
   previewIndex = 0;
+  pageIndex = 0;
+  customFont = undefined;
   templateInput.value = "";
   dataInput.value = "";
+  pageSelect.replaceChildren(new Option("1", "0"));
+  pageSelect.disabled = true;
+  element<HTMLInputElement>("#font-input").value = "";
+  element<HTMLInputElement>("#recipe-input").value = "";
   canvasWrap.hidden = true;
   element<HTMLElement>("#empty-stage").hidden = false;
   element<HTMLElement>("#template-summary").textContent = "PDF, PNG, or JPEG · first page";

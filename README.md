@@ -9,7 +9,8 @@ Use it for certificates, award cards, event credentials, badges, name tags, or o
 1. Open the [browser application](https://loganpendragonmultiverse.github.io/batch-document-studio/) or download the release ZIP and open `index.html` locally.
 2. Choose a one-page PDF, PNG, or JPEG template up to 25 MB.
 3. Choose a CSV or XLSX spreadsheet. The first row supplies field names.
-4. Add fields, select their spreadsheet columns, and drag them into position.
+4. Add fields, select their spreadsheet columns, choose wrapping or shrink-to-fit, and drag them
+   onto any template page.
 5. Preview multiple records, choose PDF or PNG, set a filename pattern, and select **Build ZIP**.
 
 The ZIP contains one file per non-empty spreadsheet row plus a JSON manifest connecting each filename to its original spreadsheet row number.
@@ -20,9 +21,14 @@ The ZIP contains one file per non-empty spreadsheet row plus a JSON manifest con
 - Preserves duplicate or blank spreadsheet headers by assigning stable unique names.
 - Previews the first page of PDF templates and full PNG/JPEG templates.
 - Maps any spreadsheet column to draggable text fields with size, color, alignment, and width controls.
+- Places fields independently across every page of a PDF template.
+- Wraps multiline text, shrinks long text to a chosen minimum size, or flags possible clipping.
+- Embeds a locally selected TTF or OTF font in generated PDFs when its license permits that use.
 - Switches between real recipient rows before generation.
 - Produces PDF or PNG documents and resolves filename collisions safely.
 - Packages outputs with a small, data-minimized audit manifest.
+- Exports and imports reusable project recipes containing layout and export settings but no rows.
+- Runs batch preflight and includes a value-free JSON report and CSV proof sheet in every ZIP.
 - Uses no account, server upload, analytics, local storage, or telemetry.
 
 ## Privacy and security
@@ -39,11 +45,14 @@ The project is tested as a static application on current desktop Chromium and Fi
 
 ## Limitations
 
-- Fields are placed on the first template page. Additional PDF pages remain in PDF output but receive no mapped text.
-- Version 1 uses the built-in Helvetica PDF font and browser Arial fallback. It does not embed custom fonts or perform complex-script shaping.
-- Text is single-line. Long content is constrained to the configured width but is not automatically wrapped or shrunk.
+- Custom fonts are user-supplied and are not stored in recipes; reattach the font each session and
+  confirm its license permits embedding. Complex-script shaping still depends on the selected font
+  and PDF library capabilities.
+- PNG output represents the first template page only. Fields mapped to later pages are reported by
+  preflight and omitted from PNG output.
 - PNG output uses the rendered preview resolution. It is not a print-preflight or color-management system.
-- The tool does not email recipients, host QR verification records, sign documents, or store reusable projects.
+- The tool does not email recipients, host QR verification records, sign documents, or persist
+  projects automatically. Portable recipes are explicit downloads and exclude templates and rows.
 - `.xls`, password-protected spreadsheets, macros, Google Sheets URLs, and multi-sheet selection are not supported.
 
 ## Local development
@@ -67,7 +76,10 @@ npm run package
 
 ## Project status and maintenance
 
-Version 1.0.0 is the current complete release. There is no promised roadmap or release cadence. Security reports are handled according to [SECURITY.md](SECURITY.md); feature ideas can be discussed through GitHub Issues.
+Version 1.1.0 is the current complete release. It adds portable recipes, multiline and fit-aware
+text, local font embedding, multi-page PDF placement, and value-free batch preflight evidence.
+There is no promised roadmap or release cadence. Security reports are handled according to
+[SECURITY.md](SECURITY.md); feature ideas can be discussed through GitHub Issues.
 
 ## Contributing and support
 

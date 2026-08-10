@@ -2,12 +2,15 @@ import { describe, expect, it } from "vitest";
 
 import {
   clamp,
+  createRecipe,
   hexToRgb,
   interpolate,
   normalizeHeaders,
   planOutputNames,
+  preflightBatch,
   safeBaseName,
   validateFields,
+  validateRecipe,
 } from "../src/core";
 import type { TextField } from "../src/types";
 
@@ -17,9 +20,15 @@ const validField: TextField = {
   x: 0.2,
   y: 0.4,
   width: 0.6,
+  height: 0.15,
   fontSize: 32,
   color: "#112233",
   alignment: "center",
+  pageIndex: 0,
+  fit: "shrink",
+  minFontSize: 10,
+  lineHeight: 1.2,
+  fontFamily: "helvetica",
 };
 
 describe("normalizeHeaders", () => {
@@ -85,7 +94,7 @@ describe("field validation", () => {
       [{ ...validField, column: "unknown", x: -1, y: 2, fontSize: 5 }],
       ["first_name"],
     );
-    expect(errors).toHaveLength(3);
+    expect(errors).toHaveLength(4);
   });
 });
 
@@ -99,5 +108,57 @@ describe("numeric and color helpers", () => {
   it("converts six-digit hex colors and falls back to black", () => {
     expect(hexToRgb("#ff8000")).toEqual({ red: 1, green: 128 / 255, blue: 0 });
     expect(hexToRgb("invalid")).toEqual({ red: 0, green: 0, blue: 0 });
+  });
+});
+
+describe("project recipes and preflight", () => {
+  const template = {
+    bytes: new Uint8Array(),
+    name: "award.pdf",
+    mimeType: "application/pdf" as const,
+    width: 600,
+    height: 400,
+    preview: {} as HTMLCanvasElement,
+    previews: [{} as HTMLCanvasElement, {} as HTMLCanvasElement],
+    pageSizes: [
+      { width: 600, height: 400 },
+      { width: 600, height: 400 },
+    ],
+  };
+
+  it("exports recipe settings without recipient data", () => {
+    const recipe = createRecipe({
+      template,
+      fields: [validField],
+      outputFormat: "pdf",
+      filenamePattern: "{first_name}",
+      customFontName: null,
+      createdAt: "2026-08-10T00:00:00Z",
+    });
+    expect(validateRecipe(recipe)).toEqual(recipe);
+    expect(JSON.stringify(recipe)).not.toContain("recipient");
+  });
+
+  it("reports missing values, overflow, pages, and fonts without copying values", () => {
+    const fields: TextField[] = [
+      { ...validField, id: "overflow", fit: "clip", width: 0.02 },
+      { ...validField, id: "page", pageIndex: 3 },
+      { ...validField, id: "font", fontFamily: "custom" },
+    ];
+    const report = preflightBatch({
+      dataset: {
+        sourceName: "people.csv",
+        headers: ["first_name"],
+        rows: [{ first_name: "A very long private recipient value" }, { first_name: "" }],
+      },
+      fields,
+      template,
+      format: "png",
+      hasCustomFont: false,
+    });
+    expect(report.counts["text-overflow"]).toBeGreaterThan(0);
+    expect(report.counts["invalid-page"]).toBeGreaterThan(0);
+    expect(report.counts["custom-font-missing"]).toBeGreaterThan(0);
+    expect(JSON.stringify(report)).not.toContain("private recipient");
   });
 });

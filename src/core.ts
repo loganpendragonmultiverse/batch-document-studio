@@ -1,4 +1,13 @@
-import type { OutputName, TextField } from "./types";
+import type {
+  Dataset,
+  OutputFormat,
+  OutputName,
+  PreflightFinding,
+  PreflightReport,
+  ProjectRecipe,
+  TemplateDocument,
+  TextField,
+} from "./types";
 
 const RESERVED_WINDOWS_NAMES = new Set([
   "CON",
@@ -79,14 +88,152 @@ export function validateFields(fields: TextField[], headers: string[]): string[]
   if (fields.length === 0) errors.push("Add at least one field to the template.");
   for (const field of fields) {
     if (!headers.includes(field.column)) errors.push(`Field ${field.id} has no valid column.`);
-    if (field.x < 0 || field.x > 1 || field.y < 0 || field.y > 1) {
+    if (field.x < 0 || field.x + field.width > 1 || field.y < 0 || field.y + field.height > 1) {
       errors.push(`Field ${field.id} is outside the template.`);
     }
     if (field.fontSize < 6 || field.fontSize > 240) {
       errors.push(`Field ${field.id} has an unsupported font size.`);
     }
+    if (!Number.isInteger(field.pageIndex) || field.pageIndex < 0) {
+      errors.push(`Field ${field.id} has an invalid page.`);
+    }
+    if (field.minFontSize < 4 || field.minFontSize > field.fontSize) {
+      errors.push(`Field ${field.id} has an invalid minimum font size.`);
+    }
+    if (field.lineHeight < 0.8 || field.lineHeight > 3) {
+      errors.push(`Field ${field.id} has an unsupported line height.`);
+    }
   }
   return errors;
+}
+
+export function estimateTextWidth(text: string, fontSize: number): number {
+  return Array.from(text).reduce(
+    (width, character) =>
+      width +
+      (/[MW@#%]/.test(character) ? 0.82 : /[ilI .,]/.test(character) ? 0.3 : 0.55) * fontSize,
+    0,
+  );
+}
+
+export function preflightBatch(options: {
+  dataset: Dataset;
+  fields: TextField[];
+  template: TemplateDocument;
+  format: OutputFormat;
+  hasCustomFont: boolean;
+}): PreflightReport {
+  const findings: PreflightFinding[] = [];
+  for (const [rowIndex, row] of options.dataset.rows.entries()) {
+    for (const field of options.fields) {
+      const value = row[field.column] ?? "";
+      const page = options.template.pageSizes[field.pageIndex];
+      if (!page)
+        findings.push({
+          severity: "error",
+          code: "invalid-page",
+          rowNumber: rowIndex + 2,
+          fieldId: field.id,
+        });
+      if (!value.trim())
+        findings.push({
+          severity: "warning",
+          code: "missing-value",
+          rowNumber: rowIndex + 2,
+          fieldId: field.id,
+        });
+      const availableWidth = page ? field.width * page.width : 0;
+      const availableHeight = page ? field.height * page.height : 0;
+      const estimatedWidth = estimateTextWidth(
+        value,
+        field.fit === "shrink" ? field.minFontSize : field.fontSize,
+      );
+      const words = value.trim().split(/\s+/).filter(Boolean);
+      let lines = 1;
+      let lineWidth = 0;
+      if (field.fit === "wrap" && availableWidth) {
+        lines = 1;
+        for (const word of words) {
+          const width = estimateTextWidth(`${lineWidth ? " " : ""}${word}`, field.fontSize);
+          if (lineWidth && lineWidth + width > availableWidth) {
+            lines += 1;
+            lineWidth = estimateTextWidth(word, field.fontSize);
+          } else lineWidth += width;
+        }
+      }
+      const overflowsWidth = field.fit !== "wrap" && estimatedWidth > availableWidth;
+      const overflowsHeight =
+        field.fit === "wrap" && lines * field.fontSize * field.lineHeight > availableHeight;
+      if (page && (overflowsWidth || overflowsHeight)) {
+        findings.push({
+          severity: "warning",
+          code: "text-overflow",
+          rowNumber: rowIndex + 2,
+          fieldId: field.id,
+        });
+      }
+      if (options.format === "png" && field.pageIndex > 0)
+        findings.push({
+          severity: "warning",
+          code: "png-extra-page",
+          rowNumber: rowIndex + 2,
+          fieldId: field.id,
+        });
+      if (field.fontFamily === "custom" && !options.hasCustomFont)
+        findings.push({
+          severity: "error",
+          code: "custom-font-missing",
+          rowNumber: rowIndex + 2,
+          fieldId: field.id,
+        });
+    }
+  }
+  const counts: PreflightReport["counts"] = {
+    "missing-value": 0,
+    "text-overflow": 0,
+    "invalid-page": 0,
+    "png-extra-page": 0,
+    "custom-font-missing": 0,
+  };
+  for (const finding of findings) counts[finding.code] += 1;
+  return { schemaVersion: 1, recordCount: options.dataset.rows.length, findings, counts };
+}
+
+export function createRecipe(options: {
+  template: TemplateDocument;
+  fields: TextField[];
+  outputFormat: OutputFormat;
+  filenamePattern: string;
+  customFontName: string | null;
+  createdAt?: string;
+}): ProjectRecipe {
+  return {
+    format: "batch-document-studio-recipe",
+    version: 1,
+    createdAt: options.createdAt ?? new Date().toISOString(),
+    template: {
+      name: options.template.name,
+      mimeType: options.template.mimeType,
+      pageCount: options.template.pageSizes.length,
+    },
+    fields: structuredClone(options.fields),
+    outputFormat: options.outputFormat,
+    filenamePattern: options.filenamePattern,
+    customFontName: options.customFontName,
+  };
+}
+
+export function validateRecipe(value: unknown): ProjectRecipe {
+  if (!value || typeof value !== "object") throw new Error("Recipe must be a JSON object.");
+  const recipe = value as ProjectRecipe;
+  if (
+    recipe.format !== "batch-document-studio-recipe" ||
+    recipe.version !== 1 ||
+    !Array.isArray(recipe.fields)
+  ) {
+    throw new Error("Unsupported Batch Document Studio recipe.");
+  }
+  return recipe;
 }
 
 export function hexToRgb(hex: string): { red: number; green: number; blue: number } {
