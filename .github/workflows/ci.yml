@@ -39,4 +39,7 @@ jobs:
       - run: npm ci
       - run: npm run package
       - name: Assert release files
-        run: test -f release/batch-document-studio-v1.0.0.zip && test -f release/batch-document-studio-v1.0.0.zip.sha256
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          test -f "release/batch-document-studio-v${VERSION}.zip"
+          test -f "release/batch-document-studio-v${VERSION}.zip.sha256"

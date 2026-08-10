@@ -31,18 +31,27 @@ async function loadImage(bytes: Uint8Array, mimeType: string): Promise<HTMLImage
   }
 }
 
-async function previewPdf(bytes: Uint8Array): Promise<HTMLCanvasElement> {
+async function previewPdf(bytes: Uint8Array): Promise<{
+  previews: HTMLCanvasElement[];
+  pageSizes: Array<{ width: number; height: number }>;
+}> {
   const task = pdfjs.getDocument({ data: bytes.slice() });
   const pdf = await task.promise;
-  const page = await pdf.getPage(1);
-  const natural = page.getViewport({ scale: 1 });
-  const scale = Math.min(2, 1400 / natural.width);
-  const viewport = page.getViewport({ scale });
-  const canvas = canvasFor(Math.round(viewport.width), Math.round(viewport.height));
-  const context = canvas.getContext("2d");
-  if (!context) throw new Error("Canvas rendering is not available in this browser.");
-  await page.render({ canvas, canvasContext: context, viewport }).promise;
-  return canvas;
+  const previews: HTMLCanvasElement[] = [];
+  const pageSizes: Array<{ width: number; height: number }> = [];
+  for (let index = 1; index <= pdf.numPages; index += 1) {
+    const page = await pdf.getPage(index);
+    const natural = page.getViewport({ scale: 1 });
+    pageSizes.push({ width: natural.width, height: natural.height });
+    const scale = Math.min(2, 1400 / natural.width);
+    const viewport = page.getViewport({ scale });
+    const canvas = canvasFor(Math.round(viewport.width), Math.round(viewport.height));
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error("Canvas rendering is not available in this browser.");
+    await page.render({ canvas, canvasContext: context, viewport }).promise;
+    previews.push(canvas);
+  }
+  return { previews, pageSizes };
 }
 
 export async function readTemplate(file: File): Promise<TemplateDocument> {
@@ -54,7 +63,9 @@ export async function readTemplate(file: File): Promise<TemplateDocument> {
   }
   const bytes = new Uint8Array(await file.arrayBuffer());
   if (file.type === "application/pdf") {
-    const preview = await previewPdf(bytes);
+    const { previews, pageSizes } = await previewPdf(bytes);
+    const preview = previews[0];
+    if (!preview) throw new Error("The PDF template does not contain a page.");
     return {
       bytes,
       name: file.name,
@@ -62,6 +73,8 @@ export async function readTemplate(file: File): Promise<TemplateDocument> {
       width: preview.width,
       height: preview.height,
       preview,
+      previews,
+      pageSizes,
     };
   }
   const image = await loadImage(bytes, file.type);
@@ -76,5 +89,7 @@ export async function readTemplate(file: File): Promise<TemplateDocument> {
     width: image.naturalWidth,
     height: image.naturalHeight,
     preview,
+    previews: [preview],
+    pageSizes: [{ width: image.naturalWidth, height: image.naturalHeight }],
   };
 }
