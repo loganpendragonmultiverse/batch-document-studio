@@ -18,7 +18,7 @@
     "jszip": "^3.10.1",
     "pdf-lib": "^1.17.1",
     "pdfjs-dist": "6.2.108",
-    "read-excel-file": "^9.3.5"
+    "read-excel-file": "^9.3.10"
   },
   "devDependencies": {
     "@eslint/js": "^9.33.0",
