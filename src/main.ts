@@ -1,8 +1,10 @@
 import "./styles.css";
 
 import { clamp, createRecipe, preflightBatch, validateFields, validateRecipe } from "./core";
-import { downloadBlob, generateArchive } from "./render";
-import { readSpreadsheet } from "./spreadsheet";
+import { downloadBlob } from "./render";
+import { generateQueue } from "./queue";
+import { placeField, alignmentGuides, selectedDataset } from "./layout";
+import { readSpreadsheet, worksheetNames } from "./spreadsheet";
 import { readTemplate } from "./template";
 import type {
   Dataset,
@@ -35,8 +37,8 @@ app.innerHTML = `
         <div class="step-number">01</div>
         <div>
           <h2>Template</h2>
-          <p id="template-summary">PDF, PNG, or JPEG · first page</p>
-          <label class="file-button">Choose template<input id="template-input" type="file" accept="application/pdf,image/png,image/jpeg" /></label>
+          <p id="template-summary">PDF, PNG, or JPEG · multi-page PDF</p>
+          <label class="file-button">Choose template<input id="template-input" type="file" accept="application/pdf,image/png,image/jpeg" /></label><button class="text-button" id="blank-template" type="button">Try a blank sample template</button>
         </div>
       </section>
 
@@ -46,6 +48,7 @@ app.innerHTML = `
           <h2>Recipient data</h2>
           <p id="data-summary">CSV or XLSX</p>
           <label class="file-button">Choose spreadsheet<input id="data-input" type="file" accept=".csv,.xlsx" /></label>
+          <label>Worksheet<select id="worksheet" disabled><option>CSV / choose XLSX</option></select></label>
           <button class="text-button" id="built-in-records" type="button">Try built-in records</button>
         </div>
       </section>
@@ -104,6 +107,9 @@ app.innerHTML = `
           <label>Color<input id="field-color" type="color" /></label>
         </div>
         <label>Alignment<select id="field-align"><option value="left">Left</option><option value="center">Center</option><option value="right">Right</option></select></label>
+        <div class="input-pair"><label>X position (%)<input id="field-x" type="number" min="0" max="100" step="0.1" /></label><label>Y position (%)<input id="field-y" type="number" min="0" max="100" step="0.1" /></label></div>
+        <p class="hint">Focus a field and use arrow keys to nudge 0.1%; Shift moves 1%. Guides show aligned edges and centers.</p>
+        <button class="text-button" id="duplicate-field" type="button">Duplicate field</button>
         <label>Field width<input id="field-width" type="range" min="10" max="100" step="1" /></label>
         <label>Field height<input id="field-height" type="range" min="5" max="100" step="1" /></label>
         <label>Text handling<select id="field-fit"><option value="clip">Clip and warn</option><option value="shrink">Shrink to fit</option><option value="wrap">Wrap lines</option></select></label>
@@ -124,7 +130,11 @@ app.innerHTML = `
           <label class="radio-card"><input type="radio" name="format" value="png" /><span><strong>PNG</strong><small>One image per row</small></span></label>
         </fieldset>
         <button class="preflight-button" id="preflight" type="button" disabled>Run preflight</button>
-        <button class="export-button" id="generate" type="button" disabled>Build ZIP</button>
+        <label>Export record numbers<input id="row-selection" value="all" placeholder="all or 1-3,5" /></label><p class="hint">Numbers refer to non-empty records in this worksheet. Proof files retain original spreadsheet row numbers.</p>
+        <label>Records per ZIP<input id="batch-size" type="number" min="1" max="50" value="20" /></label><p class="hint">One ZIP at a time; 32 MB maximum buffered document bytes per ZIP. Download each part to continue. Inputs stay in page memory.</p>
+        <button class="export-button" id="generate" type="button" disabled>Build ZIP queue</button>
+        <button class="danger-button" id="cancel-queue" type="button" hidden>Cancel remaining queue</button>
+        <button class="file-button" id="download-part" type="button" hidden>Download part and continue</button>
         <div class="progress" id="progress" role="status" aria-live="polite">Load a template and spreadsheet to begin.</div>
       </div>
     </aside>
@@ -138,6 +148,8 @@ let selectedFieldId: string | null = null;
 let previewIndex = 0;
 let pageIndex = 0;
 let customFont: FontAsset | undefined;
+let queueController: AbortController | null = null;
+let spreadsheetFile: File | null = null;
 
 const element = <T extends HTMLElement>(selector: string): T => {
   const found = document.querySelector<T>(selector);
@@ -170,8 +182,8 @@ function updateReadiness(): void {
   element<HTMLElement>("#template-card").dataset.ready = String(Boolean(template));
   element<HTMLElement>("#data-card").dataset.ready = String(Boolean(dataset));
   element<HTMLElement>("#fields-card").dataset.ready = String(fields.length > 0);
-  addFieldButton.disabled = !(template && dataset);
-  generateButton.disabled = !(template && dataset && fields.length > 0);
+  addFieldButton.disabled = Boolean(queueController) || !(template && dataset);
+  generateButton.disabled = Boolean(queueController) || !(template && dataset && fields.length > 0);
   preflightButton.disabled = generateButton.disabled;
   element<HTMLElement>("#fields-summary").textContent = fields.length
     ? `${fields.length} field${fields.length === 1 ? "" : "s"} on the proof`
@@ -235,9 +247,36 @@ function renderFields(): void {
     node.style.color = field.color;
     node.style.textAlign = field.alignment;
     node.style.whiteSpace = field.fit === "wrap" ? "normal" : "nowrap";
+    node.addEventListener("keydown", (event) => {
+      const delta = event.shiftKey ? 0.01 : 0.001;
+      const keys: Record<string, [number, number]> = {
+        ArrowLeft: [-delta, 0],
+        ArrowRight: [delta, 0],
+        ArrowUp: [0, -delta],
+        ArrowDown: [0, delta],
+      };
+      const change = keys[event.key];
+      if (!change) return;
+      event.preventDefault();
+      Object.assign(field, placeField(field, field.x + change[0], field.y + change[1]));
+      selectedFieldId = field.id;
+      renderFields();
+      fieldLayer.querySelector<HTMLButtonElement>(`[data-field-id="${field.id}"]`)?.focus();
+    });
     node.addEventListener("click", () => selectField(field.id));
     node.addEventListener("pointerdown", (event) => beginDrag(event, field.id));
     fieldLayer.append(node);
+  }
+  const selected = selectedField();
+  if (selected && selected.pageIndex === pageIndex) {
+    const guides = alignmentGuides(selected, fields);
+    for (const axis of ["x", "y"] as const)
+      for (const position of guides[axis]) {
+        const guide = document.createElement("div");
+        guide.className = `alignment-guide ${axis}`;
+        guide.style[axis === "x" ? "left" : "top"] = `${position * 100}%`;
+        fieldLayer.append(guide);
+      }
   }
   updateInspector();
   updateReadiness();
@@ -255,7 +294,7 @@ function beginDrag(event: PointerEvent, fieldId: string): void {
   const originalY = field.y;
   const move = (next: PointerEvent): void => {
     field.x = clamp(originalX + (next.clientX - startX) / bounds.width, 0, 1 - field.width);
-    field.y = clamp(originalY + (next.clientY - startY) / bounds.height, 0, 0.96);
+    field.y = clamp(originalY + (next.clientY - startY) / bounds.height, 0, 1 - field.height);
     renderFields();
   };
   const end = (): void => {
@@ -291,6 +330,8 @@ function updateInspector(): void {
     }),
   );
   column.value = field.column;
+  element<HTMLInputElement>("#field-x").value = String(Math.round(field.x * 1000) / 10);
+  element<HTMLInputElement>("#field-y").value = String(Math.round(field.y * 1000) / 10);
   element<HTMLInputElement>("#field-size").value = String(field.fontSize);
   element<HTMLInputElement>("#field-color").value = field.color;
   element<HTMLSelectElement>("#field-align").value = field.alignment;
@@ -309,7 +350,7 @@ function addField(): void {
     id: crypto.randomUUID(),
     column: header,
     x: 0.2,
-    y: 0.35 + fields.length * 0.08,
+    y: Math.min(0.85, 0.35 + fields.length * 0.08),
     width: 0.6,
     height: 0.15,
     fontSize: 32,
@@ -354,6 +395,7 @@ async function handleTemplate(file: File): Promise<void> {
 
 async function handleDataset(nextDataset: Dataset): Promise<void> {
   dataset = nextDataset;
+  element<HTMLInputElement>("#row-selection").value = "all";
   previewIndex = 0;
   element<HTMLElement>("#data-summary").textContent =
     `${dataset.sourceName} · ${dataset.rows.length} records`;
@@ -361,6 +403,22 @@ async function handleDataset(nextDataset: Dataset): Promise<void> {
   renderFields();
   setProgress("Data ready. Add fields, position them, and build the ZIP.");
 }
+
+element<HTMLButtonElement>("#blank-template").addEventListener("click", () => {
+  const canvas = document.createElement("canvas");
+  canvas.width = 900;
+  canvas.height = 600;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  ctx.fillStyle = "#fffaf0";
+  ctx.fillRect(0, 0, 900, 600);
+  ctx.strokeStyle = "#8a7650";
+  ctx.lineWidth = 3;
+  ctx.strokeRect(30, 30, 840, 540);
+  canvas.toBlob((blob) => {
+    if (blob) void handleTemplate(new File([blob], "sample-template.png", { type: "image/png" }));
+  }, "image/png");
+});
 
 templateInput.addEventListener("change", () => {
   const file = templateInput.files?.[0];
@@ -370,7 +428,16 @@ templateInput.addEventListener("change", () => {
 dataInput.addEventListener("change", () => {
   const file = dataInput.files?.[0];
   if (!file) return;
-  void readSpreadsheet(file)
+  spreadsheetFile = file;
+  void worksheetNames(file)
+    .then(async (names) => {
+      const select = element<HTMLSelectElement>("#worksheet");
+      select.replaceChildren(
+        ...(names.length ? names : ["CSV"]).map((name) => new Option(name, name)),
+      );
+      select.disabled = names.length < 2;
+      return readSpreadsheet(file, names[0] ?? 1);
+    })
     .then(handleDataset)
     .catch((error: unknown) =>
       setProgress(error instanceof Error ? error.message : "Data loading failed.", true),
@@ -417,6 +484,33 @@ pageSelect.addEventListener("change", () => {
 });
 
 addFieldButton.addEventListener("click", addField);
+element<HTMLSelectElement>("#worksheet").addEventListener("change", (event) => {
+  if (spreadsheetFile)
+    void readSpreadsheet(spreadsheetFile, (event.target as HTMLSelectElement).value)
+      .then(handleDataset)
+      .catch((error) => setProgress(String(error), true));
+});
+for (const axis of ["x", "y"] as const)
+  element<HTMLInputElement>(`#field-${axis}`).addEventListener("input", (event) => {
+    const field = selectedField();
+    if (!field) return;
+    const value = Number((event.target as HTMLInputElement).value) / 100;
+    if (Number.isFinite(value)) {
+      Object.assign(
+        field,
+        placeField(field, axis === "x" ? value : field.x, axis === "y" ? value : field.y),
+      );
+      renderFields();
+    }
+  });
+element<HTMLButtonElement>("#duplicate-field").addEventListener("click", () => {
+  const field = selectedField();
+  if (!field) return;
+  const copy = placeField({ ...field, id: crypto.randomUUID() }, field.x + 0.02, field.y + 0.02);
+  fields.push(copy);
+  selectedFieldId = copy.id;
+  renderFields();
+});
 
 element<HTMLSelectElement>("#field-column").addEventListener("change", (event) => {
   const field = selectedField();
@@ -508,7 +602,7 @@ function outputFormat(): OutputFormat {
 function currentPreflight() {
   if (!template || !dataset) throw new Error("Load a template and spreadsheet first.");
   return preflightBatch({
-    dataset,
+    dataset: selectedDataset(dataset, element<HTMLInputElement>("#row-selection").value),
     fields,
     template,
     format: outputFormat(),
@@ -592,6 +686,13 @@ generateButton.addEventListener("click", () => {
     return;
   }
   const format = outputFormat();
+  let exportData: Dataset;
+  try {
+    exportData = selectedDataset(dataset, element<HTMLInputElement>("#row-selection").value);
+  } catch (error) {
+    setProgress(String(error), true);
+    return;
+  }
   const preflight = currentPreflight();
   const preflightErrors = preflight.findings.filter((finding) => finding.severity === "error");
   if (preflightErrors.length) {
@@ -604,29 +705,81 @@ generateButton.addEventListener("click", () => {
   const filenamePattern =
     element<HTMLInputElement>("#filename-pattern").value.trim() ||
     "document-{first_name}-{last_name}";
-  const recordCount = dataset.rows.length;
+  const recordCount = exportData.rows.length;
   generateButton.disabled = true;
   setProgress(`Building ${recordCount} ${format.toUpperCase()} files…`);
-  void generateArchive({
+  queueController = new AbortController();
+  const signal = queueController.signal;
+  const cancel = element<HTMLButtonElement>("#cancel-queue");
+  cancel.hidden = false;
+  // Freeze controls while retaining the cancel/download controls.
+  const controls = [
+    ...document.querySelectorAll<HTMLInputElement | HTMLButtonElement | HTMLSelectElement>(
+      "input,button,select",
+    ),
+  ].filter((c) => c.id !== "cancel-queue" && c.id !== "download-part");
+  const disabled = controls.map((c) => c.disabled);
+  controls.forEach((c) => (c.disabled = true));
+  void generateQueue({
     template,
-    dataset,
-    fields,
+    dataset: exportData,
+    fields: structuredClone(fields),
     format,
     filenamePattern,
     customFont,
+    signal,
+    batchSize: Number(element<HTMLInputElement>("#batch-size").value),
     onProgress: (completed, total) => setProgress(`Rendered ${completed} of ${total} documents…`),
+    onArchive: (archive, part) =>
+      new Promise<void>((resolve, reject) => {
+        const button = element<HTMLButtonElement>("#download-part");
+        button.hidden = false;
+        button.textContent = `Download ZIP part ${part} and continue`;
+        const cleanup = () => {
+          button.hidden = true;
+          button.onclick = null;
+          signal.removeEventListener("abort", abort);
+        };
+        const abort = () => {
+          cleanup();
+          reject(new Error("Queue cancelled. Previously downloaded parts remain available."));
+        };
+        signal.addEventListener("abort", abort, { once: true });
+        button.onclick = () => {
+          downloadBlob(archive, `batch-document-studio-${format}-part-${part}.zip`);
+          cleanup();
+          resolve();
+        };
+        setProgress(`ZIP part ${part} ready. Download it to continue the queue.`);
+      }),
   })
-    .then((archive) => {
-      downloadBlob(archive, `batch-document-studio-${format}.zip`);
-      setProgress(`Finished ${recordCount} documents. The ZIP download is ready.`);
-    })
+    .then((parts) => setProgress(`Finished ${recordCount} documents in ${parts} ZIP parts.`))
     .catch((error: unknown) =>
-      setProgress(error instanceof Error ? error.message : "Batch generation failed.", true),
+      setProgress(
+        signal.aborted
+          ? "Queue cancelled. Previously downloaded parts are retained."
+          : error instanceof Error
+            ? error.message
+            : "Generation failed.",
+        true,
+      ),
     )
-    .finally(() => updateReadiness());
+    .finally(() => {
+      queueController = null;
+      cancel.hidden = true;
+      controls.forEach((c, i) => (c.disabled = disabled[i] ?? false));
+      updateReadiness();
+    });
 });
 
+element<HTMLButtonElement>("#cancel-queue").addEventListener("click", () =>
+  queueController?.abort(),
+);
+
 element<HTMLButtonElement>("#clear-session").addEventListener("click", () => {
+  spreadsheetFile = null;
+  element<HTMLSelectElement>("#worksheet").replaceChildren(new Option("CSV / choose XLSX"));
+  element<HTMLSelectElement>("#worksheet").disabled = true;
   template = null;
   dataset = null;
   fields = [];
@@ -642,7 +795,7 @@ element<HTMLButtonElement>("#clear-session").addEventListener("click", () => {
   element<HTMLInputElement>("#recipe-input").value = "";
   canvasWrap.hidden = true;
   element<HTMLElement>("#empty-stage").hidden = false;
-  element<HTMLElement>("#template-summary").textContent = "PDF, PNG, or JPEG · first page";
+  element<HTMLElement>("#template-summary").textContent = "PDF, PNG, or JPEG · multi-page PDF";
   element<HTMLElement>("#data-summary").textContent = "CSV or XLSX";
   element<HTMLElement>("#record-label").textContent = "Waiting for a template and data";
   renderRecordPicker();

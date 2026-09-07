@@ -2,24 +2,24 @@
 
 Batch Document Studio turns a PDF or image template and a CSV/XLSX spreadsheet into a ZIP of personalized PDF or PNG documents. It runs entirely in the browser: templates, recipient rows, rendered documents, and ZIP contents stay on the device.
 
-Use it for certificates, award cards, event credentials, badges, name tags, or other one-page documents that repeat a visual design while changing text.
+Use it for certificates, award cards, event credentials, badges, name tags, or other personalized documents that repeat a visual design while changing text.
 
 ## Three-minute path
 
-1. Open the [browser application](https://loganpendragonmultiverse.github.io/batch-document-studio/) or download the release ZIP and open `index.html` locally.
-2. Choose a one-page PDF, PNG, or JPEG template up to 25 MB.
-3. Choose a CSV or XLSX spreadsheet. The first row supplies field names.
+1. Open the [browser application](https://loganpendragonmultiverse.github.io/batch-document-studio/) or serve the downloaded release ZIP with a local static server.
+2. Choose a multi-page PDF, PNG, or JPEG template up to 25 MB.
+3. Choose a CSV or XLSX spreadsheet. Select the XLSX worksheet. The first row supplies field names.
 4. Add fields, select their spreadsheet columns, choose wrapping or shrink-to-fit, and drag them
    onto any template page.
-5. Preview multiple records, choose PDF or PNG, set a filename pattern, and select **Build ZIP**.
+5. Preview multiple records, choose PDF or PNG, set a filename pattern, and select records and **Build ZIP queue**.
 
 The ZIP contains one file per non-empty spreadsheet row plus a JSON manifest connecting each filename to its original spreadsheet row number.
 
 ## What version 1 does
 
-- Reads the first worksheet from CSV and XLSX recipient files.
+- Reads CSV and explicitly selected XLSX worksheets.
 - Preserves duplicate or blank spreadsheet headers by assigning stable unique names.
-- Previews the first page of PDF templates and full PNG/JPEG templates.
+- Previews each page of PDF templates and full PNG/JPEG templates.
 - Maps any spreadsheet column to draggable text fields with size, color, alignment, and width controls.
 - Places fields independently across every page of a PDF template.
 - Wraps multiline text, shrinks long text to a chosen minimum size, or flags possible clipping.
@@ -88,3 +88,11 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) before proposing a change. For usage que
 ## License
 
 MIT. See [LICENSE](LICENSE).
+
+## Version 1.2.0: reviewed improvements
+
+Add placement guides, keyboard/numeric positioning, duplicate fields and a cancellable selected-record ZIP queue.
+
+The preview toolbar wraps at 390 pixels. Fields support numeric percentages, arrow-key nudging (0.1%, Shift 1%), page-aware edge/center guides and duplication. XLSX worksheet selection and explicit record ranges control exports, with original worksheet row numbers retained in manifests and preflight. ZIP parts render sequentially, await an explicit download before continuing, and cap buffered document bytes at 32 MB per part with 1–50 records per part. Cancellation discards the current undownloaded part and stops subsequent work; previously downloaded parts remain. Inputs, parser memory, a single document render and compression overhead are outside that output-buffer cap. Large parts fail with guidance to select fewer records. Collision-safe names span the queue. Templates, rows and fonts stay local; a blank sample template supports an entirely local walkthrough. Automated PDF/ZIP tests verify numbering, cancellation and limits; desktop/mobile browser QA exercised numeric placement, duplication and queue cancellation. File-scheme launch, physical print accuracy and every XLSX producer are not claimed.
+
+Validation: `npm run check`, `npm audit`, and `npm run package`.

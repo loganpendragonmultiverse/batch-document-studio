@@ -169,10 +169,15 @@ export async function generateArchive(options: {
   filenamePattern: string;
   onProgress?: (completed: number, total: number) => void;
   customFont?: FontAsset;
+  signal?: AbortSignal;
+  maxBytes?: number;
+  plannedNames?: ReturnType<typeof planOutputNames>;
 }): Promise<Blob> {
   const { template, dataset, fields, format, filenamePattern, onProgress, customFont } = options;
+  options.signal?.throwIfAborted();
+  let bufferedBytes = 0;
   const zip = new JSZip();
-  const names = planOutputNames(dataset.rows, filenamePattern, format);
+  const names = options.plannedNames ?? planOutputNames(dataset.rows, filenamePattern, format);
   const preflight = preflightBatch({
     dataset,
     fields,
@@ -181,12 +186,20 @@ export async function generateArchive(options: {
     hasCustomFont: Boolean(customFont),
   });
   for (const [index, row] of dataset.rows.entries()) {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    options.signal?.throwIfAborted();
     const name = names[index];
     if (!name) continue;
     const output =
       format === "pdf"
         ? await renderPdf(template, row, fields, customFont)
         : await renderPng(template, row, fields, customFont);
+    options.signal?.throwIfAborted();
+    bufferedBytes += output instanceof Uint8Array ? output.byteLength : output.size;
+    if (bufferedBytes > (options.maxBytes ?? 32 * 1024 * 1024))
+      throw new Error(
+        "This ZIP exceeds the 32 MB output buffer limit. Choose fewer records per ZIP.",
+      );
     zip.file(name.fileName, output);
     onProgress?.(index + 1, dataset.rows.length);
   }
@@ -203,7 +216,10 @@ export async function generateArchive(options: {
         pageCount: template.pageSizes.length,
         customFont: customFont?.name ?? null,
         preflight: preflight.counts,
-        files: names.map(({ rowIndex, fileName }) => ({ rowNumber: rowIndex + 2, fileName })),
+        files: names.map(({ rowIndex, fileName }) => ({
+          rowNumber: dataset.rowNumbers?.[rowIndex] ?? rowIndex + 2,
+          fileName,
+        })),
       },
       null,
       2,
@@ -211,7 +227,7 @@ export async function generateArchive(options: {
   );
   zip.file("batch-document-studio-preflight.json", JSON.stringify(preflight, null, 2));
   const proofRows = dataset.rows.map((_row, index) => {
-    const rowNumber = index + 2;
+    const rowNumber = dataset.rowNumbers?.[index] ?? index + 2;
     const counts = preflight.findings
       .filter((finding) => finding.rowNumber === rowNumber)
       .reduce<Record<string, number>>((result, finding) => {
@@ -228,11 +244,16 @@ export async function generateArchive(options: {
     "batch-document-studio-proof.csv",
     `row_number,finding_count,summary\n${proofRows.join("\n")}\n`,
   );
-  return zip.generateAsync({
-    type: "blob",
-    compression: "DEFLATE",
-    compressionOptions: { level: 6 },
-  });
+  const archive = await zip.generateAsync(
+    {
+      type: "blob",
+      compression: "DEFLATE",
+      compressionOptions: { level: 6 },
+    },
+    () => options.signal?.throwIfAborted(),
+  );
+  options.signal?.throwIfAborted();
+  return archive;
 }
 
 export function downloadBlob(blob: Blob, name: string): void {

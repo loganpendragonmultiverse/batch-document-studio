@@ -132,14 +132,14 @@ export function preflightBatch(options: {
         findings.push({
           severity: "error",
           code: "invalid-page",
-          rowNumber: rowIndex + 2,
+          rowNumber: options.dataset.rowNumbers?.[rowIndex] ?? rowIndex + 2,
           fieldId: field.id,
         });
       if (!value.trim())
         findings.push({
           severity: "warning",
           code: "missing-value",
-          rowNumber: rowIndex + 2,
+          rowNumber: options.dataset.rowNumbers?.[rowIndex] ?? rowIndex + 2,
           fieldId: field.id,
         });
       const availableWidth = page ? field.width * page.width : 0;
@@ -168,7 +168,7 @@ export function preflightBatch(options: {
         findings.push({
           severity: "warning",
           code: "text-overflow",
-          rowNumber: rowIndex + 2,
+          rowNumber: options.dataset.rowNumbers?.[rowIndex] ?? rowIndex + 2,
           fieldId: field.id,
         });
       }
@@ -176,14 +176,14 @@ export function preflightBatch(options: {
         findings.push({
           severity: "warning",
           code: "png-extra-page",
-          rowNumber: rowIndex + 2,
+          rowNumber: options.dataset.rowNumbers?.[rowIndex] ?? rowIndex + 2,
           fieldId: field.id,
         });
       if (field.fontFamily === "custom" && !options.hasCustomFont)
         findings.push({
           severity: "error",
           code: "custom-font-missing",
-          rowNumber: rowIndex + 2,
+          rowNumber: options.dataset.rowNumbers?.[rowIndex] ?? rowIndex + 2,
           fieldId: field.id,
         });
     }
