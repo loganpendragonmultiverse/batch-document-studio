@@ -6,6 +6,7 @@ export interface Dataset {
   headers: string[];
   rows: Record<string, string>[];
   sourceName: string;
+  rowNumbers?: number[];
 }
 
 export interface TextField {

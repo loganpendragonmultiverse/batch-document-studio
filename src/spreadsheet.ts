@@ -1,4 +1,4 @@
-import { readSheet } from "read-excel-file/browser";
+import readSheets, { readSheet } from "read-excel-file/browser";
 
 import { normalizeHeaders } from "./core";
 import type { Dataset } from "./types";
@@ -16,7 +16,14 @@ export function parseRows(matrix: unknown[][], sourceName: string): Dataset {
     );
   const nonEmptyRows = rows.filter((row) => Object.values(row).some((value) => value !== ""));
   if (nonEmptyRows.length === 0) throw new Error("The spreadsheet has headers but no data rows.");
-  return { headers, rows: nonEmptyRows, sourceName };
+  return {
+    headers,
+    rows: nonEmptyRows,
+    sourceName,
+    rowNumbers: rows.flatMap((row, i) =>
+      Object.values(row).some((value) => value !== "") ? [i + 2] : [],
+    ),
+  };
 }
 
 export function parseCsv(text: string): unknown[][] {
@@ -40,7 +47,7 @@ export function parseCsv(text: string): unknown[][] {
     } else if ((character === "\n" || character === "\r") && !quoted) {
       if (character === "\r" && next === "\n") index += 1;
       row.push(value);
-      if (row.some((cell) => cell !== "")) rows.push(row);
+      rows.push(row);
       row = [];
       value = "";
     } else {
@@ -53,9 +60,16 @@ export function parseCsv(text: string): unknown[][] {
   return rows;
 }
 
-export async function readSpreadsheet(file: File): Promise<Dataset> {
+export async function readSpreadsheet(file: File, sheet: string | number = 1): Promise<Dataset> {
   const extension = file.name.split(".").pop()?.toLowerCase();
   if (extension === "csv") return parseRows(parseCsv(await file.text()), file.name);
-  if (extension === "xlsx") return parseRows((await readSheet(file)) as unknown[][], file.name);
+  if (extension === "xlsx")
+    return parseRows((await readSheet(file, sheet)) as unknown[][], file.name);
   throw new Error("Choose a CSV or XLSX spreadsheet.");
+}
+
+export async function worksheetNames(file: File): Promise<string[]> {
+  if (file.size > 25 * 1024 * 1024) throw new Error("Spreadsheet exceeds 25 MB.");
+  if (!file.name.toLowerCase().endsWith(".xlsx")) return [];
+  return (await readSheets(file)).map((sheet) => sheet.sheet);
 }

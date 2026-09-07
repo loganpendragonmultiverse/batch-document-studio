@@ -41,3 +41,11 @@ Files are held only in page memory. The application deliberately has no persiste
 ## Verification
 
 Use the exact commands in [TESTING.md](TESTING.md). Claims in the README must not exceed tested behavior. Release artifacts are built from `dist/` by `scripts/package.mjs` and receive a SHA-256 sidecar.
+
+## Version 1.2.0: reviewed improvements
+
+Add placement guides, keyboard/numeric positioning, duplicate fields and a cancellable selected-record ZIP queue.
+
+The preview toolbar wraps at 390 pixels. Fields support numeric percentages, arrow-key nudging (0.1%, Shift 1%), page-aware edge/center guides and duplication. XLSX worksheet selection and explicit record ranges control exports, with original worksheet row numbers retained in manifests and preflight. ZIP parts render sequentially, await an explicit download before continuing, and cap buffered document bytes at 32 MB per part with 1–50 records per part. Cancellation discards the current undownloaded part and stops subsequent work; previously downloaded parts remain. Inputs, parser memory, a single document render and compression overhead are outside that output-buffer cap. Large parts fail with guidance to select fewer records. Collision-safe names span the queue. Templates, rows and fonts stay local; a blank sample template supports an entirely local walkthrough. Automated PDF/ZIP tests verify numbering, cancellation and limits; desktop/mobile browser QA exercised numeric placement, duplication and queue cancellation. File-scheme launch, physical print accuracy and every XLSX producer are not claimed.
+
+Validation: `npm run check`, `npm audit`, and `npm run package`.

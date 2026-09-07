@@ -560,3 +560,34 @@ label.file-button:has(input:focus-visible) {
     border-top: 1px solid var(--line);
   }
 }
+
+.studio-toolbar {
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.studio-toolbar > div {
+  flex: 1 1 160px;
+  min-width: 0;
+}
+.record-picker {
+  min-width: 0;
+  max-width: 100%;
+}
+.record-picker select {
+  max-width: 100%;
+}
+.alignment-guide {
+  position: absolute;
+  pointer-events: none;
+  z-index: 5;
+}
+.alignment-guide.x {
+  top: 0;
+  bottom: 0;
+  border-left: 1px dashed #bd365d;
+}
+.alignment-guide.y {
+  left: 0;
+  right: 0;
+  border-top: 1px dashed #bd365d;
+}
