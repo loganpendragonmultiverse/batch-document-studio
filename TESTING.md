@@ -41,3 +41,18 @@ Add placement guides, keyboard/numeric positioning, duplicate fields and a cance
 The preview toolbar wraps at 390 pixels. Fields support numeric percentages, arrow-key nudging (0.1%, Shift 1%), page-aware edge/center guides and duplication. XLSX worksheet selection and explicit record ranges control exports, with original worksheet row numbers retained in manifests and preflight. ZIP parts render sequentially, await an explicit download before continuing, and cap buffered document bytes at 32 MB per part with 1–50 records per part. Cancellation discards the current undownloaded part and stops subsequent work; previously downloaded parts remain. Inputs, parser memory, a single document render and compression overhead are outside that output-buffer cap. Large parts fail with guidance to select fewer records. Collision-safe names span the queue. Templates, rows and fonts stay local; a blank sample template supports an entirely local walkthrough. Automated PDF/ZIP tests verify numbering, cancellation and limits; desktop/mobile browser QA exercised numeric placement, duplication and queue cancellation. File-scheme launch, physical print accuracy and every XLSX producer are not claimed.
 
 Validation: `npm run check`, `npm audit`, and `npm run package`.
+
+## 1.3.0 - 2026-10-16
+
+Run preflight before generation to review row number, field ID, severity, and a plain-language
+explanation. Each finding opens its original worksheet record and mapped field. Findings refresh
+after field, font, output-format, and record-selection changes. Download the value-free JSON
+report independently, including when errors prevent ZIP creation. Reports contain no recipient
+cell values. The live document preview still displays the selected record as before.
+
+Browser acceptance: build the application, install Playwright 1.64.1 and its Chromium/Firefox
+browsers in an isolated test environment, then run `node scripts/test-preflight-browser.mjs`.
+Set `PLAYWRIGHT_MODULE` to the absolute Playwright index.mjs path when installed outside the
+checkout. The script starts a local preview and checks desktop/390px layouts, synthetic recipient
+canaries, original worksheet row identity after filtering, keyboard navigation and report download,
+blocking errors, field edits, repeated queue runs, cancellation, and clearing the session.

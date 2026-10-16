@@ -22,6 +22,16 @@ async function addDirectory(directory, prefix = "") {
 }
 
 await addDirectory(dist);
+for (const name of [
+  "README.md",
+  "DEVELOPMENT.md",
+  "TESTING.md",
+  "CHANGELOG.md",
+  "LICENSE",
+  "SECURITY.md",
+]) {
+  zip.file(name, await readFile(path.join(root, name)));
+}
 await mkdir(release, { recursive: true });
 const archive = await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" });
 await writeFile(path.join(release, archiveName), archive);
