@@ -54,4 +54,5 @@ jobs:
       - run: npm install --prefix /tmp/browser --no-audit --ignore-scripts playwright@1.64.1
       - run: node scripts/test-preflight-browser.mjs
         env:
+          HOME: /root
           PLAYWRIGHT_MODULE: /tmp/browser/node_modules/playwright/index.mjs
