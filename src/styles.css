@@ -591,3 +591,19 @@ label.file-button:has(input:focus-visible) {
   right: 0;
   border-top: 1px dashed #bd365d;
 }
+
+#preflight-findings {
+  padding-left: 1.4rem;
+  max-height: 24rem;
+  overflow-y: auto;
+}
+#preflight-findings li {
+  margin-block: 1rem;
+  overflow-wrap: anywhere;
+}
+#preflight-findings button,
+#download-preflight {
+  max-width: 100%;
+  white-space: normal;
+  min-height: 44px;
+}

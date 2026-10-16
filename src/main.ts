@@ -9,6 +9,7 @@ import { readTemplate } from "./template";
 import type {
   Dataset,
   FontAsset,
+  PreflightReport,
   OutputFormat,
   TemplateDocument,
   TextAlignment,
@@ -130,6 +131,12 @@ app.innerHTML = `
           <label class="radio-card"><input type="radio" name="format" value="png" /><span><strong>PNG</strong><small>One image per row</small></span></label>
         </fieldset>
         <button class="preflight-button" id="preflight" type="button" disabled>Run preflight</button>
+        <section id="preflight-inspector" aria-label="Preflight findings" hidden>
+          <h2>Preflight findings</h2>
+          <p id="preflight-summary" role="status" aria-live="polite"></p>
+          <button id="download-preflight" type="button">Download preflight report</button>
+          <ol id="preflight-findings"></ol>
+        </section>
         <label>Export record numbers<input id="row-selection" value="all" placeholder="all or 1-3,5" /></label><p class="hint">Numbers refer to non-empty records in this worksheet. Proof files retain original spreadsheet row numbers.</p>
         <label>Records per ZIP<input id="batch-size" type="number" min="1" max="50" value="20" /></label><p class="hint">One ZIP at a time; 32 MB maximum buffered document bytes per ZIP. Download each part to continue. Inputs stay in page memory.</p>
         <button class="export-button" id="generate" type="button" disabled>Build ZIP queue</button>
@@ -150,6 +157,7 @@ let pageIndex = 0;
 let customFont: FontAsset | undefined;
 let queueController: AbortController | null = null;
 let spreadsheetFile: File | null = null;
+let inspectedReport: PreflightReport | null = null;
 
 const element = <T extends HTMLElement>(selector: string): T => {
   const found = document.querySelector<T>(selector);
@@ -217,7 +225,7 @@ function renderRecordPicker(): void {
     const option = document.createElement("option");
     option.value = String(index);
     const firstValue = currentDataset.headers.map((header) => row[header]).find(Boolean);
-    option.textContent = `Row ${index + 2}${firstValue ? ` · ${firstValue}` : ""}`;
+    option.textContent = `Row ${currentDataset.rowNumbers?.[index] ?? index + 2}${firstValue ? ` · ${firstValue}` : ""}`;
     recordSelect.append(option);
   });
   recordSelect.disabled = false;
@@ -280,6 +288,7 @@ function renderFields(): void {
   }
   updateInspector();
   updateReadiness();
+  refreshPreflight();
 }
 
 function beginDrag(event: PointerEvent, fieldId: string): void {
@@ -557,6 +566,7 @@ element<HTMLSelectElement>("#field-fit").addEventListener("change", (event) => {
 element<HTMLInputElement>("#field-min-size").addEventListener("input", (event) => {
   const field = selectedField();
   if (field) field.minFontSize = Number((event.target as HTMLInputElement).value);
+  renderFields();
 });
 
 element<HTMLInputElement>("#field-line-height").addEventListener("input", (event) => {
@@ -586,6 +596,7 @@ element<HTMLInputElement>("#font-input").addEventListener("change", (event) => {
       await face.load();
       document.fonts.add(face);
       customFont = { bytes, name: file.name, family };
+      refreshPreflight();
       element<HTMLElement>("#font-hint").textContent =
         `${file.name} ready for fields set to Selected local font.`;
       setProgress("Local font loaded. Confirm its license permits embedding.");
@@ -610,19 +621,106 @@ function currentPreflight() {
   });
 }
 
+const explanations: Record<PreflightReport["findings"][number]["code"], string> = {
+  "missing-value": "This field has no nonblank value in this record.",
+  "text-overflow":
+    "The estimated text size exceeds this field. Increase its area or adjust text handling.",
+  "invalid-page": "This field refers to a page outside the current template.",
+  "png-extra-page": "PNG exports only the first template page; this field will be omitted.",
+  "custom-font-missing": "Attach a local font or choose the built-in font for this field.",
+};
+
+function showPreflight(report: PreflightReport): void {
+  inspectedReport = report;
+  element<HTMLElement>("#preflight-inspector").hidden = false;
+  const errors = report.findings.filter((finding) => finding.severity === "error").length;
+  element<HTMLElement>("#preflight-summary").textContent =
+    `${errors} errors and ${report.findings.length - errors} warnings across ${report.recordCount} records.`;
+  element<HTMLButtonElement>("#download-preflight").disabled = Boolean(queueController);
+  const list = element<HTMLOListElement>("#preflight-findings");
+  list.replaceChildren();
+  for (const finding of report.findings) {
+    const item = document.createElement("li");
+    const description = document.createElement("p");
+    description.textContent = `Row ${finding.rowNumber} · Field ${finding.fieldId} · ${finding.severity}: ${explanations[finding.code]}`;
+    const button = document.createElement("button");
+    button.type = "button";
+    button.textContent = `Inspect row ${finding.rowNumber} and field`;
+    button.disabled = Boolean(queueController);
+    button.addEventListener("click", () => {
+      if (!dataset) return;
+      const index = dataset.rows.findIndex(
+        (_, i) => (dataset?.rowNumbers?.[i] ?? i + 2) === finding.rowNumber,
+      );
+      if (index < 0) return;
+      previewIndex = index;
+      recordSelect.value = String(index);
+      selectedFieldId = finding.fieldId;
+      const field = selectedField();
+      if (template && field && template.pageSizes[field.pageIndex]) {
+        pageIndex = field.pageIndex;
+        pageSelect.value = String(pageIndex);
+        renderTemplate();
+      }
+      renderFields();
+      element<HTMLSelectElement>("#field-column").focus();
+    });
+    item.append(description, button);
+    list.append(item);
+  }
+  if (!report.findings.length) list.textContent = "No findings for the selected records.";
+}
+
+function refreshPreflight(): void {
+  if (!inspectedReport || queueController) return;
+  try {
+    showPreflight(currentPreflight());
+  } catch {
+    inspectedReport = null;
+    element<HTMLElement>("#preflight-inspector").hidden = true;
+    element<HTMLOListElement>("#preflight-findings").replaceChildren();
+  }
+}
+
 preflightButton.addEventListener("click", () => {
   try {
-    const report = currentPreflight();
-    const errors = report.findings.filter((finding) => finding.severity === "error").length;
-    const warnings = report.findings.length - errors;
-    setProgress(
-      `Preflight complete: ${errors} errors and ${warnings} warnings across ${report.recordCount} records. The ZIP will include the detailed report and proof sheet.`,
-      errors > 0,
-    );
+    showPreflight(currentPreflight());
+    setProgress("Preflight ready. Review findings or download the independent report.");
   } catch (error) {
     setProgress(error instanceof Error ? error.message : "Preflight failed.", true);
   }
 });
+
+element<HTMLButtonElement>("#download-preflight").addEventListener("click", () => {
+  if (!inspectedReport) return;
+  // Recompute immediately so a download can never use a stale cached report.
+  showPreflight(currentPreflight());
+  downloadBlob(
+    new Blob(
+      [
+        JSON.stringify(
+          {
+            ...inspectedReport,
+            findings: inspectedReport.findings.map((finding) => ({
+              ...finding,
+              explanation: explanations[finding.code],
+            })),
+          },
+          null,
+          2,
+        ) + "\n",
+      ],
+      { type: "application/json" },
+    ),
+    "batch-document-studio-preflight.json",
+  );
+});
+for (const input of document.querySelectorAll<HTMLInputElement>(
+  'input[name="format"], #row-selection',
+)) {
+  input.addEventListener("input", refreshPreflight);
+  input.addEventListener("change", refreshPreflight);
+}
 
 element<HTMLButtonElement>("#export-recipe").addEventListener("click", () => {
   if (!template) return setProgress("Load the matching template before exporting a recipe.", true);
@@ -694,6 +792,7 @@ generateButton.addEventListener("click", () => {
     return;
   }
   const preflight = currentPreflight();
+  showPreflight(preflight);
   const preflightErrors = preflight.findings.filter((finding) => finding.severity === "error");
   if (preflightErrors.length) {
     setProgress(
@@ -769,6 +868,7 @@ generateButton.addEventListener("click", () => {
       cancel.hidden = true;
       controls.forEach((c, i) => (c.disabled = disabled[i] ?? false));
       updateReadiness();
+      refreshPreflight();
     });
 });
 
@@ -777,6 +877,9 @@ element<HTMLButtonElement>("#cancel-queue").addEventListener("click", () =>
 );
 
 element<HTMLButtonElement>("#clear-session").addEventListener("click", () => {
+  inspectedReport = null;
+  element<HTMLElement>("#preflight-inspector").hidden = true;
+  element<HTMLOListElement>("#preflight-findings").replaceChildren();
   spreadsheetFile = null;
   element<HTMLSelectElement>("#worksheet").replaceChildren(new Option("CSV / choose XLSX"));
   element<HTMLSelectElement>("#worksheet").disabled = true;
