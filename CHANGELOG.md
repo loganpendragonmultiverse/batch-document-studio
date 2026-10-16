@@ -2,6 +2,8 @@
 
 ## 1.3.0 - 2026-10-16
 
+- Updated the Vitest/coverage test toolchain and vulnerable transitives to patched versions while retaining Node 20/24 gates and coverage thresholds.
+
 Run preflight before generation to review row number, field ID, severity, and a plain-language
 explanation. Each finding opens its original worksheet record and mapped field. Findings refresh
 after field, font, output-format, and record-selection changes. Download the value-free JSON
