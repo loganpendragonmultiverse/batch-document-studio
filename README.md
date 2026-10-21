@@ -76,7 +76,7 @@ npm run package
 
 ## Project status and maintenance
 
-Version 1.3.0 adds an actionable preflight inspector to the existing placement and cancellable ZIP queue tools.
+Version 1.3.1 retains the preflight inspector and cancellable ZIP queue, corrects PDF-template PNG text scaling, preserves explicit wrapped line breaks, and aligns the mapped-field font display with the selected local font.
 There is no promised roadmap or release cadence. Security reports are handled according to
 [SECURITY.md](SECURITY.md); feature ideas can be discussed through GitHub Issues.
 

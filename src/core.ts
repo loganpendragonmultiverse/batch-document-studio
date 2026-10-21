@@ -1,3 +1,4 @@
+import { wrapText } from "./text-layout";
 import type {
   Dataset,
   OutputFormat,
@@ -148,19 +149,11 @@ export function preflightBatch(options: {
         value,
         field.fit === "shrink" ? field.minFontSize : field.fontSize,
       );
-      const words = value.trim().split(/\s+/).filter(Boolean);
-      let lines = 1;
-      let lineWidth = 0;
-      if (field.fit === "wrap" && availableWidth) {
-        lines = 1;
-        for (const word of words) {
-          const width = estimateTextWidth(`${lineWidth ? " " : ""}${word}`, field.fontSize);
-          if (lineWidth && lineWidth + width > availableWidth) {
-            lines += 1;
-            lineWidth = estimateTextWidth(word, field.fontSize);
-          } else lineWidth += width;
-        }
-      }
+      const lines =
+        field.fit === "wrap" && availableWidth
+          ? wrapText(value, availableWidth, (text) => estimateTextWidth(text, field.fontSize))
+              .length
+          : 1;
       const overflowsWidth = field.fit !== "wrap" && estimatedWidth > availableWidth;
       const overflowsHeight =
         field.fit === "wrap" && lines * field.fontSize * field.lineHeight > availableHeight;

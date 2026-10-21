@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.3.1 - 2026-10-21
+
+- Preserve natural PDF page dimensions when scaling text into PNG output and scale minimum shrink sizes consistently.
+- Retain explicit line breaks in wrapped PDF/PNG text and preflight height estimates.
+- Scale mapped-field preview text with its page and display the selected local font; remove loaded local font faces when clearing or replacing them.
+- Update Vite to the patched 7.3.7 line without changing the supported Node matrix or verification thresholds.
+- Add output-based Chromium/Firefox rendering regressions with retained synthetic PDF, PNG and screenshot evidence.
+
 ## 1.3.0 - 2026-10-16
 
 - Updated the Vitest/coverage test toolchain and vulnerable transitives to patched versions while retaining Node 20/24 gates and coverage thresholds.
