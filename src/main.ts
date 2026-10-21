@@ -155,6 +155,7 @@ let selectedFieldId: string | null = null;
 let previewIndex = 0;
 let pageIndex = 0;
 let customFont: FontAsset | undefined;
+let customFontFace: FontFace | undefined;
 let queueController: AbortController | null = null;
 let spreadsheetFile: File | null = null;
 let inspectedReport: PreflightReport | null = null;
@@ -251,10 +252,17 @@ function renderFields(): void {
     node.style.top = `${field.y * 100}%`;
     node.style.width = `${field.width * 100}%`;
     node.style.height = `${field.height * 100}%`;
-    node.style.fontSize = `${Math.max(10, field.fontSize * 0.7)}px`;
+    const page = template?.pageSizes[pageIndex];
+    const scale = page ? fieldLayer.getBoundingClientRect().width / page.width : 1;
+    node.style.fontSize = `${field.fontSize * scale}px`;
+    node.style.fontFamily =
+      field.fontFamily === "custom" && customFont ? `"${customFont.family}"` : "Arial, sans-serif";
+    node.style.lineHeight = String(field.lineHeight);
+    node.style.padding = "0";
+    node.style.alignContent = "start";
     node.style.color = field.color;
     node.style.textAlign = field.alignment;
-    node.style.whiteSpace = field.fit === "wrap" ? "normal" : "nowrap";
+    node.style.whiteSpace = field.fit === "wrap" ? "pre-wrap" : "nowrap";
     node.addEventListener("keydown", (event) => {
       const delta = event.shiftKey ? 0.01 : 0.001;
       const keys: Record<string, [number, number]> = {
@@ -594,9 +602,11 @@ element<HTMLInputElement>("#font-input").addEventListener("change", (event) => {
       const bytes = new Uint8Array(buffer);
       const face = new FontFace(family, bytes.slice().buffer);
       await face.load();
+      if (customFontFace) document.fonts.delete(customFontFace);
+      customFontFace = face;
       document.fonts.add(face);
       customFont = { bytes, name: file.name, family };
-      refreshPreflight();
+      renderFields();
       element<HTMLElement>("#font-hint").textContent =
         `${file.name} ready for fields set to Selected local font.`;
       setProgress("Local font loaded. Confirm its license permits embedding.");
@@ -890,6 +900,8 @@ element<HTMLButtonElement>("#clear-session").addEventListener("click", () => {
   previewIndex = 0;
   pageIndex = 0;
   customFont = undefined;
+  if (customFontFace) document.fonts.delete(customFontFace);
+  customFontFace = undefined;
   templateInput.value = "";
   dataInput.value = "";
   pageSelect.replaceChildren(new Option("1", "0"));
@@ -906,4 +918,7 @@ element<HTMLButtonElement>("#clear-session").addEventListener("click", () => {
   setProgress("Local session cleared.");
 });
 
+new ResizeObserver(() => {
+  if (template) renderFields();
+}).observe(canvasWrap);
 updateReadiness();

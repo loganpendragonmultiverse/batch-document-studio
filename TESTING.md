@@ -56,3 +56,7 @@ Set `PLAYWRIGHT_MODULE` to the absolute Playwright index.mjs path when installed
 checkout. The script starts a local preview and checks desktop/390px layouts, synthetic recipient
 canaries, original worksheet row identity after filtering, keyboard navigation and report download,
 blocking errors, field edits, repeated queue runs, cancellation, and clearing the session.
+
+## Rendering regression acceptance
+
+After building, set `TEST_FONT` to a licensed local TTF under the documented 10 MB font limit, then run `node scripts/test-render-browser.mjs` with the same Playwright 1.64.1 setup. The reference Linux run uses the installed Liberation Sans Regular TTF. `ACCEPTANCE_DIR` chooses the isolated evidence directory (default `/tmp/bds-render-acceptance`). It drives the built app in Chromium and Firefox with a synthetic two-page PDF, quoted multiline CSV, a real two-sheet XLSX workbook, PNG/JPEG templates and a local TTF. It downloads actual ZIP outputs, checks natural PDF page sizes, embedded custom fonts, original worksheet row numbers, collision filenames, font clearing and 2× PNG text scale, and retains PNG/PDF outputs plus screenshots. `PREVIEW_DIR` can point to an unpacked release ZIP to verify the installed artifact. Run the existing preflight browser suite as well for cancellation, retry and session clearing. These browser checks do not establish physical printing, color management, every font or spreadsheet producer, or native Safari behavior.
