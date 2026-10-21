@@ -24,20 +24,7 @@ for (const dimensions of [
   });
 }
 const pdfBytes = Buffer.from(await source.save());
-const server = spawn(
-  process.execPath,
-  [
-    "node_modules/vite/bin/vite.js",
-    "preview",
-    "--host",
-    "127.0.0.1",
-    "--port",
-    "4173",
-    "--outDir",
-    process.env.PREVIEW_DIR || "dist",
-  ],
-  { stdio: "ignore" },
-);
+
 const base = "http://127.0.0.1:4173";
 async function downloadPart(page, format) {
   await page.locator('input[name="format"][value="' + format + '"]').check();
@@ -138,6 +125,20 @@ assert(
   "Font fixture must satisfy the documented 10 MB input limit",
 );
 console.log(JSON.stringify({ fontFixture: process.env.TEST_FONT, fontBytes: fontBytes.length }));
+const server = spawn(
+  process.execPath,
+  [
+    "node_modules/vite/bin/vite.js",
+    "preview",
+    "--host",
+    "127.0.0.1",
+    "--port",
+    "4173",
+    "--outDir",
+    process.env.PREVIEW_DIR || "dist",
+  ],
+  { stdio: "ignore" },
+);
 const results = [];
 try {
   let ready = false;
@@ -202,6 +203,30 @@ try {
           [400, 600],
         ],
       );
+      await page.locator("#field-fit").selectOption("shrink");
+      await page.locator("#field-min-size").fill("24");
+      await page.locator("#field-width").evaluate((node) => {
+        node.value = "10";
+        node.dispatchEvent(new globalThis.Event("input", { bubbles: true }));
+      });
+      const shrunkZip = await downloadPart(page, "png");
+      const shrunkPng = await shrunkZip.file("synthetic.png").async("uint8array");
+      const shrunkInk = await bounds(page, shrunkPng);
+      assert(
+        shrunkInk.inkHeight >= 25 && shrunkInk.inkHeight <= 40,
+        "24-point shrink minimum must retain 2x pixel scale: " + JSON.stringify(shrunkInk),
+      );
+      await writeFile(out + "/" + engine.name() + "-shrink-minimum.png", shrunkPng);
+      results.push({
+        engine: engine.name(),
+        case: "2x shrink minimum",
+        passed: true,
+        ...shrunkInk,
+      });
+      await page.locator("#field-width").evaluate((node) => {
+        node.value = "60";
+        node.dispatchEvent(new globalThis.Event("input", { bubbles: true }));
+      });
       await page.locator("#field-column").selectOption("note");
       await page.locator("#field-fit").selectOption("wrap");
       await page.locator("#field-size").fill("24");
