@@ -60,3 +60,17 @@ blocking errors, field edits, repeated queue runs, cancellation, and clearing th
 ## Rendering regression acceptance
 
 After building, set `TEST_FONT` to a licensed local TTF under the documented 10 MB font limit, then run `node scripts/test-render-browser.mjs` with the same Playwright 1.64.1 setup. The reference Linux run uses the installed Liberation Sans Regular TTF. `ACCEPTANCE_DIR` chooses the isolated evidence directory (default `/tmp/bds-render-acceptance`). It drives the built app in Chromium and Firefox with a synthetic two-page PDF, quoted multiline CSV, a real two-sheet XLSX workbook, PNG/JPEG templates and a local TTF. It downloads actual ZIP outputs, checks natural PDF page sizes, embedded custom fonts, original worksheet row numbers, collision filenames, font clearing and 2× PNG text scale, and retains PNG/PDF outputs plus screenshots. `PREVIEW_DIR` can point to an unpacked release ZIP to verify the installed artifact. Run the existing preflight browser suite as well for cancellation, retry and session clearing. These browser checks do not establish physical printing, color management, every font or spreadsheet producer, or native Safari behavior.
+
+## 1.3.2: Recipient preservation and input integrity
+
+Generated header names and PDF/PNG filenames remain unique even when an authored
+name already contains a generated suffix. Original suffixed names are reserved
+before assigning duplicate suffixes. ZIP manifests retain every selected row.
+CSV quoting is strict and every nonblank CSV record must match the header width;
+quote and width diagnostics identify the record without repeating cell values.
+XLSX rows may omit empty trailing cells; nonempty cells beyond the header are
+rejected. Fully blank rows remain skipped and original row numbers stay visible.
+
+Regression acceptance checks all recipient PDFs and manifest identities in single
+and multipart ZIP queues, suffix/case/blank header collisions, ragged input and
+quoted commas/newlines. Preserve the full existing quality and browser gates.

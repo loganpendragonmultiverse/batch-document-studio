@@ -76,7 +76,7 @@ npm run package
 
 ## Project status and maintenance
 
-Version 1.3.1 retains the preflight inspector and cancellable ZIP queue, corrects PDF-template PNG text scaling, preserves explicit wrapped line breaks, and aligns the mapped-field font display with the selected local font.
+Version 1.3.2 preserves recipient columns and collision-safe outputs with strict CSV admission. It retains the preflight inspector and cancellable ZIP queue, corrects PDF-template PNG text scaling, preserves explicit wrapped line breaks, and aligns the mapped-field font display with the selected local font.
 There is no promised roadmap or release cadence. Security reports are handled according to
 [SECURITY.md](SECURITY.md); feature ideas can be discussed through GitHub Issues.
 
@@ -103,3 +103,17 @@ explanation. Each finding opens its original worksheet record and mapped field. 
 after field, font, output-format, and record-selection changes. Download the value-free JSON
 report independently, including when errors prevent ZIP creation. Reports contain no recipient
 cell values. The live document preview still displays the selected record as before.
+
+## 1.3.2: Recipient preservation and input integrity
+
+Generated header names and PDF/PNG filenames remain unique even when an authored
+name already contains a generated suffix. Original suffixed names are reserved
+before assigning duplicate suffixes. ZIP manifests retain every selected row.
+CSV quoting is strict and every nonblank CSV record must match the header width;
+quote and width diagnostics identify the record without repeating cell values.
+XLSX rows may omit empty trailing cells; nonempty cells beyond the header are
+rejected. Fully blank rows remain skipped and original row numbers stay visible.
+
+Regression acceptance checks all recipient PDFs and manifest identities in single
+and multipart ZIP queues, suffix/case/blank header collisions, ragged input and
+quoted commas/newlines. Preserve the full existing quality and browser gates.
