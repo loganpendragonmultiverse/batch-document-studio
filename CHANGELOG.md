@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.3.2 - 2026-10-22
+
+- Preserve every recipient column and output with globally unique names, including authored suffixes.
+- Reject malformed CSV quoting, ragged CSV records and nonempty spreadsheet cells beyond header width without exposing values in diagnostics.
+- Verify actual PDF/ZIP member counts and original worksheet row identity across queue sizes.
+
 ## 1.3.1 - 2026-10-21
 
 - Preserve natural PDF page dimensions when scaling text into PNG output and scale minimum shrink sizes consistently.
