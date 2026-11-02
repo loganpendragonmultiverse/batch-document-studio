@@ -7,3 +7,8 @@ release/
 .env
 .env.*
 !.env.example
+
+# Local executor metadata and synthetic acceptance outputs
+.forge-task.json
+.forge-review/
+.forge-write-*.lock

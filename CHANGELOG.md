@@ -1,5 +1,29 @@
 # Changelog
 
+## 1.3.2 - 2026-10-22
+
+- Preserve every recipient column and output with globally unique names, including authored suffixes.
+- Reject malformed CSV quoting, ragged CSV records and nonempty spreadsheet cells beyond header width without exposing values in diagnostics.
+- Verify actual PDF/ZIP member counts and original worksheet row identity across queue sizes.
+
+## 1.3.1 - 2026-10-21
+
+- Preserve natural PDF page dimensions when scaling text into PNG output and scale minimum shrink sizes consistently.
+- Retain explicit line breaks in wrapped PDF/PNG text and preflight height estimates.
+- Scale mapped-field preview text with its page and display the selected local font; remove loaded local font faces when clearing or replacing them.
+- Update Vite to the patched 7.3.7 line without changing the supported Node matrix or verification thresholds.
+- Add output-based Chromium/Firefox rendering regressions with retained synthetic PDF, PNG and screenshot evidence.
+
+## 1.3.0 - 2026-10-16
+
+- Updated the Vitest/coverage test toolchain and vulnerable transitives to patched versions while retaining Node 20/24 gates and coverage thresholds.
+
+Run preflight before generation to review row number, field ID, severity, and a plain-language
+explanation. Each finding opens its original worksheet record and mapped field. Findings refresh
+after field, font, output-format, and record-selection changes. Download the value-free JSON
+report independently, including when errors prevent ZIP creation. Reports contain no recipient
+cell values. The live document preview still displays the selected record as before.
+
 ## 1.1.0 — 2026-08-10
 
 - Added portable project recipe export/import without template, recipient, or font data.
