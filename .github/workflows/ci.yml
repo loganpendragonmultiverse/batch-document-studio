@@ -43,3 +43,16 @@ jobs:
           VERSION=$(node -p "require('./package.json').version")
           test -f "release/batch-document-studio-v${VERSION}.zip"
           test -f "release/batch-document-studio-v${VERSION}.zip.sha256"
+
+  browser-preflight:
+    runs-on: ubuntu-latest
+    container: mcr.microsoft.com/playwright:v1.64.1-noble
+    steps:
+      - uses: actions/checkout@v7
+      - run: npm ci
+      - run: npm run build
+      - run: npm install --prefix /tmp/browser --no-audit --ignore-scripts playwright@1.64.1
+      - run: node scripts/test-preflight-browser.mjs
+        env:
+          HOME: /root
+          PLAYWRIGHT_MODULE: /tmp/browser/node_modules/playwright/index.mjs

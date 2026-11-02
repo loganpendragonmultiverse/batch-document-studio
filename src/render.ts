@@ -1,4 +1,5 @@
 import JSZip from "jszip";
+import { wrapText } from "./text-layout";
 import fontkit from "@pdf-lib/fontkit";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import type { PDFFont, PDFPage } from "pdf-lib";
@@ -86,17 +87,7 @@ async function renderPdf(
 }
 
 function wrapPdfText(text: string, font: PDFFont, size: number, width: number): string[] {
-  const lines: string[] = [];
-  let current = "";
-  for (const word of text.split(/\s+/)) {
-    const candidate = current ? `${current} ${word}` : word;
-    if (current && font.widthOfTextAtSize(candidate, size) > width) {
-      lines.push(current);
-      current = word;
-    } else current = candidate;
-  }
-  if (current || !lines.length) lines.push(current);
-  return lines;
+  return wrapText(text, width, (value) => font.widthOfTextAtSize(value, size));
 }
 
 async function renderPng(
@@ -127,22 +118,19 @@ async function renderPng(
           ? left + width
           : left;
     if (field.fit === "shrink") {
-      while (fontSize > field.minFontSize && context.measureText(text).width > width) {
-        fontSize -= 1;
+      while (
+        fontSize > field.minFontSize * (canvas.height / template.height) &&
+        context.measureText(text).width > width
+      ) {
+        fontSize = Math.max(
+          field.minFontSize * (canvas.height / template.height),
+          fontSize - canvas.height / template.height,
+        );
         context.font = `${fontSize}px ${family}`;
       }
       context.fillText(text, x, field.y * canvas.height, width);
     } else if (field.fit === "wrap") {
-      const lines: string[] = [];
-      let current = "";
-      for (const word of text.split(/\s+/)) {
-        const candidate = current ? `${current} ${word}` : word;
-        if (current && context.measureText(candidate).width > width) {
-          lines.push(current);
-          current = word;
-        } else current = candidate;
-      }
-      if (current || !lines.length) lines.push(current);
+      const lines = wrapText(text, width, (value) => context.measureText(value).width);
       lines.forEach((line, index) =>
         context.fillText(
           line,

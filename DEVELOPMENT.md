@@ -49,3 +49,25 @@ Add placement guides, keyboard/numeric positioning, duplicate fields and a cance
 The preview toolbar wraps at 390 pixels. Fields support numeric percentages, arrow-key nudging (0.1%, Shift 1%), page-aware edge/center guides and duplication. XLSX worksheet selection and explicit record ranges control exports, with original worksheet row numbers retained in manifests and preflight. ZIP parts render sequentially, await an explicit download before continuing, and cap buffered document bytes at 32 MB per part with 1–50 records per part. Cancellation discards the current undownloaded part and stops subsequent work; previously downloaded parts remain. Inputs, parser memory, a single document render and compression overhead are outside that output-buffer cap. Large parts fail with guidance to select fewer records. Collision-safe names span the queue. Templates, rows and fonts stay local; a blank sample template supports an entirely local walkthrough. Automated PDF/ZIP tests verify numbering, cancellation and limits; desktop/mobile browser QA exercised numeric placement, duplication and queue cancellation. File-scheme launch, physical print accuracy and every XLSX producer are not claimed.
 
 Validation: `npm run check`, `npm audit`, and `npm run package`.
+
+## 1.3.0 - 2026-10-16
+
+Run preflight before generation to review row number, field ID, severity, and a plain-language
+explanation. Each finding opens its original worksheet record and mapped field. Findings refresh
+after field, font, output-format, and record-selection changes. Download the value-free JSON
+report independently, including when errors prevent ZIP creation. Reports contain no recipient
+cell values. The live document preview still displays the selected record as before.
+
+## 1.3.2: Recipient preservation and input integrity
+
+Generated header names and PDF/PNG filenames remain unique even when an authored
+name already contains a generated suffix. Original suffixed names are reserved
+before assigning duplicate suffixes. ZIP manifests retain every selected row.
+CSV quoting is strict and every nonblank CSV record must match the header width;
+quote and width diagnostics identify the record without repeating cell values.
+XLSX rows may omit empty trailing cells; nonempty cells beyond the header are
+rejected. Fully blank rows remain skipped and original row numbers stay visible.
+
+Regression acceptance checks all recipient PDFs and manifest identities in single
+and multipart ZIP queues, suffix/case/blank header collisions, ragged input and
+quoted commas/newlines. Preserve the full existing quality and browser gates.
