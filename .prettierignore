@@ -1,0 +1,4 @@
+# Generated executor metadata and retained acceptance artifacts.
+.forge-task.json
+.forge-review/
+**/.forge-write-*.lock
