@@ -1,3 +1,4 @@
+import { wrapText } from "./text-layout";
 import type {
   Dataset,
   OutputFormat,
@@ -34,15 +35,31 @@ const RESERVED_WINDOWS_NAMES = new Set([
   "LPT9",
 ]);
 
-export function normalizeHeaders(values: unknown[]): string[] {
-  const seen = new Map<string, number>();
-  return values.map((value, index) => {
-    const raw = String(value ?? "").trim();
-    const base = raw || `column_${index + 1}`;
-    const current = seen.get(base.toLowerCase()) ?? 0;
-    seen.set(base.toLowerCase(), current + 1);
-    return current === 0 ? base : `${base}_${current + 1}`;
+// Reserve authored names before allocating suffixes so later columns keep their identity.
+function uniqueNames(bases: string[], separator: string): string[] {
+  const reserved = new Set(bases.map((base) => base.toLowerCase()));
+  const used = new Set<string>();
+  const next = new Map<string, number>();
+  return bases.map((base) => {
+    const key = base.toLowerCase();
+    let candidate = base;
+    if (used.has(key)) {
+      let suffix = next.get(key) ?? 2;
+      do {
+        candidate = `${base}${separator}${suffix++}`;
+      } while (reserved.has(candidate.toLowerCase()) || used.has(candidate.toLowerCase()));
+      next.set(key, suffix);
+    }
+    used.add(candidate.toLowerCase());
+    return candidate;
   });
+}
+
+export function normalizeHeaders(values: unknown[]): string[] {
+  return uniqueNames(
+    values.map((value, index) => String(value ?? "").trim() || `column_${index + 1}`),
+    "_",
+  );
 }
 
 export function interpolate(pattern: string, row: Record<string, string>): string {
@@ -68,15 +85,15 @@ export function planOutputNames(
   pattern: string,
   extension: "pdf" | "png",
 ): OutputName[] {
-  const collisions = new Map<string, number>();
-  return rows.map((row, index) => {
-    const baseName = safeBaseName(interpolate(pattern, row), `document-${index + 1}`);
-    const key = baseName.toLowerCase();
-    const occurrence = (collisions.get(key) ?? 0) + 1;
-    collisions.set(key, occurrence);
-    const resolved = occurrence === 1 ? baseName : `${baseName}-${occurrence}`;
-    return { rowIndex: index, baseName, fileName: `${resolved}.${extension}` };
-  });
+  const bases = rows.map((row, index) =>
+    safeBaseName(interpolate(pattern, row), `document-${index + 1}`),
+  );
+  const resolved = uniqueNames(bases, "-");
+  return resolved.map((name, rowIndex) => ({
+    rowIndex,
+    baseName: bases[rowIndex]!,
+    fileName: `${name}.${extension}`,
+  }));
 }
 
 export function clamp(value: number, minimum = 0, maximum = 1): number {
@@ -148,19 +165,11 @@ export function preflightBatch(options: {
         value,
         field.fit === "shrink" ? field.minFontSize : field.fontSize,
       );
-      const words = value.trim().split(/\s+/).filter(Boolean);
-      let lines = 1;
-      let lineWidth = 0;
-      if (field.fit === "wrap" && availableWidth) {
-        lines = 1;
-        for (const word of words) {
-          const width = estimateTextWidth(`${lineWidth ? " " : ""}${word}`, field.fontSize);
-          if (lineWidth && lineWidth + width > availableWidth) {
-            lines += 1;
-            lineWidth = estimateTextWidth(word, field.fontSize);
-          } else lineWidth += width;
-        }
-      }
+      const lines =
+        field.fit === "wrap" && availableWidth
+          ? wrapText(value, availableWidth, (text) => estimateTextWidth(text, field.fontSize))
+              .length
+          : 1;
       const overflowsWidth = field.fit !== "wrap" && estimatedWidth > availableWidth;
       const overflowsHeight =
         field.fit === "wrap" && lines * field.fontSize * field.lineHeight > availableHeight;
