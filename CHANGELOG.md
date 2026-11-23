@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.3.3 - 2026-11-16
+
+- Update PDF.js and JSZip for document previews and downloads.
+
 ## 1.3.2 - 2026-10-22
 
 - Preserve every recipient column and output with globally unique names, including authored suffixes.
